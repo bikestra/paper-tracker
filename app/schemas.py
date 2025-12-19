@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Optional
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
 from .models import PaperStatus
 
@@ -17,8 +17,7 @@ class Category(CategoryBase):
     user_id: int
     created_at: dt.datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PaperBase(BaseModel):
@@ -39,8 +38,7 @@ class Paper(PaperBase):
     updated_at: Optional[dt.datetime] = None
     read_at: Optional[dt.datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class User(BaseModel):
@@ -48,8 +46,7 @@ class User(BaseModel):
     email: Optional[str] = None
     created_at: dt.datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class Healthcheck(BaseModel):

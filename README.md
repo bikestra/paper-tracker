@@ -27,6 +27,12 @@ Web app to track a paper reading list.
 
 The API will be available at `http://127.0.0.1:8000/`.
 
+To format the codebase consistently, run:
+
+```bash
+make fmt
+```
+
 ## Project layout
 
 - `app/`

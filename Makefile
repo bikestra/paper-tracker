@@ -11,3 +11,6 @@ db-downgrade:
 
 run:
 	uvicorn app.main:app --reload
+
+fmt:
+	ruff format app alembic

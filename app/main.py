@@ -1,4 +1,5 @@
 from fastapi import Depends, FastAPI
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from . import models
@@ -16,5 +17,5 @@ def on_startup() -> None:
 
 @app.get("/", tags=["health"], response_model=Healthcheck)
 def read_root(db: Session = Depends(get_db)) -> Healthcheck:
-    _ = db  # Placeholder to validate DB connectivity.
+    db.execute(text("SELECT 1"))
     return Healthcheck(message="Paper Tracker API is running")
