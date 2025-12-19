@@ -23,7 +23,7 @@ class Category(CategoryBase):
 class PaperBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=500)
     url: Optional[HttpUrl] = None
-    authors: Optional[str] = None
+    authors: list[str] = Field(default_factory=list)
     venue_year: Optional[str] = Field(None, max_length=100)
     status: PaperStatus = PaperStatus.PLANNED
     category_id: Optional[int] = None
@@ -37,6 +37,16 @@ class Paper(PaperBase):
     created_at: dt.datetime
     updated_at: Optional[dt.datetime] = None
     read_at: Optional[dt.datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class Author(BaseModel):
+    id: int
+    user_id: int
+    name: str
+    orcid: Optional[str] = None
+    created_at: dt.datetime
 
     model_config = ConfigDict(from_attributes=True)
 
