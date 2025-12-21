@@ -5,6 +5,10 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./paper_tracker.db")
 
+# Import libsql dialect if using Turso
+if DATABASE_URL.startswith("libsql"):
+    import libsql_experimental.sqlalchemy  # noqa: F401 - registers dialect
+
 # Handle different database backends
 connect_args = {}
 if DATABASE_URL.startswith("sqlite"):
