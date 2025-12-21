@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}Papers - Paper Tracker{% endblock %}
+
+{% block content %}
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+    <h1 class="text-2xl font-bold text-gray-900">Papers</h1>
+    <a href="/add" class="inline-flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+        </svg>
+        Add Paper
+    </a>
+</div>
+
+<!-- Status Tabs -->
+<div class="flex flex-wrap gap-2 mb-4 border-b pb-4">
+    <a href="/?status=PLANNED{% if category_id %}&category_id={{ category_id }}{% endif %}"
+       class="px-4 py-2 rounded-lg text-sm font-medium transition-colors
+              {% if current_status == 'PLANNED' %}bg-blue-100 text-blue-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">
+        Planned
+        <span class="ml-1 text-xs">{{ counts.PLANNED }}</span>
+    </a>
+    <a href="/?status=READING{% if category_id %}&category_id={{ category_id }}{% endif %}"
+       class="px-4 py-2 rounded-lg text-sm font-medium transition-colors
+              {% if current_status == 'READING' %}bg-yellow-100 text-yellow-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">
+        Reading
+        <span class="ml-1 text-xs">{{ counts.READING }}</span>
+    </a>
+    <a href="/?status=READ{% if category_id %}&category_id={{ category_id }}{% endif %}"
+       class="px-4 py-2 rounded-lg text-sm font-medium transition-colors
+              {% if current_status == 'READ' %}bg-green-100 text-green-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">
+        Read
+        <span class="ml-1 text-xs">{{ counts.READ }}</span>
+    </a>
+</div>
+
+<!-- Category Filter -->
+<div class="mb-6">
+    <div class="flex flex-wrap gap-2 items-center">
+        <span class="text-sm text-gray-500">Category:</span>
+        <a href="/?status={{ current_status }}"
+           class="px-3 py-1 rounded-full text-sm transition-colors
+                  {% if not category_id %}bg-gray-800 text-white{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">
+            All
+        </a>
+        {% for cat in categories %}
+        <a href="/?status={{ current_status }}&category_id={{ cat.id }}"
+           class="px-3 py-1 rounded-full text-sm transition-colors
+                  {% if category_id == cat.id %}bg-gray-800 text-white{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">
+            {{ cat.name }}
+        </a>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Papers List -->
+<div id="paper-list">
+    {% include "partials/paper_list.html" %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    initSortable();
+});
+
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target.id === 'paper-list') {
+        initSortable();
+    }
+});
+
+function initSortable() {
+    const list = document.getElementById('sortable-papers');
+    if (!list) return;
+
+    new Sortable(list, {
+        handle: '.drag-handle',
+        animation: 150,
+        ghostClass: 'sortable-ghost',
+        chosenClass: 'sortable-chosen',
+        onEnd: function(evt) {
+            const paperIds = Array.from(list.querySelectorAll('[data-paper-id]'))
+                .map(el => parseInt(el.dataset.paperId));
+
+            const status = list.dataset.status;
+            const categoryId = list.dataset.categoryId || null;
+
+            fetch('/papers/reorder', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    status: status,
+                    category_id: categoryId ? parseInt(categoryId) : null,
+                    paper_ids: paperIds
+                })
+            });
+        }
+    });
+}
+</script>
+{% endblock %}

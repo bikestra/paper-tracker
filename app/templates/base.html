@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Paper Tracker{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+    <style>
+        /* Loading indicator */
+        .htmx-request .htmx-indicator { display: inline-block; }
+        .htmx-indicator { display: none; }
+
+        /* Drag handle cursor */
+        .drag-handle { cursor: grab; }
+        .drag-handle:active { cursor: grabbing; }
+
+        /* Sortable ghost */
+        .sortable-ghost { opacity: 0.4; background: #e5e7eb; }
+        .sortable-chosen { background: #f3f4f6; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <nav class="bg-white shadow-sm border-b">
+        <div class="max-w-5xl mx-auto px-4 py-3">
+            <div class="flex items-center justify-between">
+                <a href="/" class="text-xl font-semibold text-gray-800">Paper Tracker</a>
+                <div class="flex gap-4 text-sm">
+                    <a href="/" class="text-gray-600 hover:text-gray-900 {% if active_page == 'home' %}font-medium text-gray-900{% endif %}">Papers</a>
+                    <a href="/authors" class="text-gray-600 hover:text-gray-900 {% if active_page == 'authors' %}font-medium text-gray-900{% endif %}">Authors</a>
+                    <a href="/categories" class="text-gray-600 hover:text-gray-900 {% if active_page == 'categories' %}font-medium text-gray-900{% endif %}">Categories</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-5xl mx-auto px-4 py-6">
+        {% block content %}{% endblock %}
+    </main>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

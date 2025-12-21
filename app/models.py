@@ -3,7 +3,16 @@ from __future__ import annotations
 import datetime as dt
 from enum import Enum
 
-from sqlalchemy import Column, DateTime, Enum as SqlEnum, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Column,
+    DateTime,
+    Enum as SqlEnum,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -17,6 +26,12 @@ class PaperStatus(str, Enum):
     PLANNED = "PLANNED"
     READING = "READING"
     READ = "READ"
+
+
+class PaperSource(str, Enum):
+    ARXIV = "ARXIV"
+    URL = "URL"
+    MANUAL = "MANUAL"
 
 
 class User(Base):
@@ -41,10 +56,14 @@ class User(Base):
 
 class Category(Base):
     __tablename__ = "categories"
-    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_category_user_name"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_category_user_name"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True
+    )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
@@ -58,12 +77,21 @@ class Category(Base):
 
 class Paper(Base):
     __tablename__ = "papers"
+    __table_args__ = (
+        UniqueConstraint("user_id", "arxiv_id", name="uq_paper_user_arxiv_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True
+    )
     title: Mapped[str] = mapped_column(String(500), nullable=False)
+    abstract: Mapped[str | None] = mapped_column(Text, nullable=True)
     url: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    venue_year: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    pdf_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    source: Mapped[PaperSource] = mapped_column(
+        SqlEnum(PaperSource), default=PaperSource.MANUAL, nullable=False
+    )
     status: Mapped[PaperStatus] = mapped_column(
         SqlEnum(PaperStatus), default=PaperStatus.PLANNED, nullable=False
     )
@@ -72,16 +100,40 @@ class Paper(Base):
     )
     order_index: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # arXiv-specific fields
+    arxiv_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    arxiv_version: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    arxiv_primary_category: Mapped[str | None] = mapped_column(
+        String(50), nullable=True
+    )
+    arxiv_published_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    arxiv_updated_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # Additional metadata
+    doi: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    journal_ref: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    citation_key: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    venue_year: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
     updated_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
-    read_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    read_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     user: Mapped[User] = relationship("User", back_populates="papers")
-    category: Mapped[Category | None] = relationship("Category", back_populates="papers")
+    category: Mapped[Category | None] = relationship(
+        "Category", back_populates="papers"
+    )
     author_links: Mapped[list[PaperAuthor]] = relationship(
         "PaperAuthor", back_populates="paper", cascade="all, delete-orphan"
     )
@@ -90,6 +142,7 @@ class Paper(Base):
         secondary="paper_authors",
         back_populates="papers",
         order_by="PaperAuthor.position",
+        overlaps="author_links,paper_links",
     )
 
 
@@ -101,7 +154,9 @@ class Author(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     orcid: Mapped[str | None] = mapped_column(String(50), nullable=True)
     arxiv_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -114,7 +169,10 @@ class Author(Base):
         "PaperAuthor", back_populates="author", cascade="all, delete-orphan"
     )
     papers: Mapped[list[Paper]] = relationship(
-        "Paper", secondary="paper_authors", back_populates="authors"
+        "Paper",
+        secondary="paper_authors",
+        back_populates="authors",
+        overlaps="author_links,paper_links",
     )
 
 
@@ -137,5 +195,9 @@ class PaperAuthor(Base):
         DateTime(timezone=True), default=utcnow, nullable=False
     )
 
-    paper: Mapped[Paper] = relationship("Paper", back_populates="author_links")
-    author: Mapped[Author] = relationship("Author", back_populates="paper_links")
+    paper: Mapped[Paper] = relationship(
+        "Paper", back_populates="author_links", overlaps="authors,papers"
+    )
+    author: Mapped[Author] = relationship(
+        "Author", back_populates="paper_links", overlaps="authors,papers"
+    )

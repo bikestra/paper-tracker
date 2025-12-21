@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Paper - Paper Tracker{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+    <div class="flex items-center justify-between mb-6">
+        <h1 class="text-2xl font-bold text-gray-900">Edit Paper</h1>
+        {% if paper.arxiv_id %}
+        <button hx-post="/papers/{{ paper.id }}/refresh-arxiv"
+                hx-target="#paper-form-fields"
+                hx-swap="innerHTML"
+                class="px-4 py-2 text-sm text-orange-600 hover:text-orange-800 border border-orange-300 rounded-lg hover:bg-orange-50 transition-colors flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+            </svg>
+            <span class="htmx-indicator">
+                <svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                </svg>
+            </span>
+            Refresh from arXiv
+        </button>
+        {% endif %}
+    </div>
+
+    <form method="post" action="/papers/{{ paper.id }}" class="bg-white rounded-lg shadow-sm border p-6">
+        <div id="paper-form-fields">
+            {% include "partials/paper_form.html" %}
+        </div>
+
+        <div class="flex justify-between mt-6 pt-6 border-t">
+            <button hx-post="/papers/{{ paper.id }}/delete"
+                    hx-confirm="Delete this paper?"
+                    type="button"
+                    class="px-4 py-2 text-red-600 hover:text-red-800">
+                Delete
+            </button>
+            <div class="flex gap-3">
+                <a href="/" class="px-4 py-2 text-gray-700 hover:text-gray-900">Cancel</a>
+                <button type="submit" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                    Save Changes
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}

@@ -13,6 +13,7 @@ depends_on = None
 
 
 paper_status = sa.Enum("PLANNED", "READING", "READ", name="paperstatus")
+paper_source = sa.Enum("ARXIV", "URL", "MANUAL", name="papersource")
 
 
 def upgrade() -> None:
@@ -42,7 +43,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete=None),
         sa.UniqueConstraint("user_id", "name", name="uq_category_user_name"),
     )
-    op.create_index(op.f("ix_categories_user_id"), "categories", ["user_id"], unique=False)
+    op.create_index(
+        op.f("ix_categories_user_id"), "categories", ["user_id"], unique=False
+    )
 
     op.create_table(
         "authors",
@@ -68,8 +71,15 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("user_id", sa.Integer(), nullable=False),
         sa.Column("title", sa.String(length=500), nullable=False),
+        sa.Column("abstract", sa.Text(), nullable=True),
         sa.Column("url", sa.String(length=500), nullable=True),
-        sa.Column("venue_year", sa.String(length=100), nullable=True),
+        sa.Column("pdf_url", sa.String(length=500), nullable=True),
+        sa.Column(
+            "source",
+            paper_source,
+            nullable=False,
+            server_default=sa.text("'MANUAL'"),
+        ),
         sa.Column(
             "status",
             paper_status,
@@ -81,6 +91,17 @@ def upgrade() -> None:
             "order_index", sa.Integer(), nullable=False, server_default=sa.text("10")
         ),
         sa.Column("notes", sa.Text(), nullable=True),
+        # arXiv-specific fields
+        sa.Column("arxiv_id", sa.String(length=50), nullable=True),
+        sa.Column("arxiv_version", sa.String(length=10), nullable=True),
+        sa.Column("arxiv_primary_category", sa.String(length=50), nullable=True),
+        sa.Column("arxiv_published_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("arxiv_updated_at", sa.DateTime(timezone=True), nullable=True),
+        # Additional metadata
+        sa.Column("doi", sa.String(length=100), nullable=True),
+        sa.Column("journal_ref", sa.String(length=200), nullable=True),
+        sa.Column("citation_key", sa.String(length=100), nullable=True),
+        sa.Column("venue_year", sa.String(length=100), nullable=True),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -97,9 +118,12 @@ def upgrade() -> None:
         sa.Column("read_at", sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(["category_id"], ["categories.id"], ondelete=None),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete=None),
+        sa.UniqueConstraint("user_id", "arxiv_id", name="uq_paper_user_arxiv_id"),
     )
     op.create_index(op.f("ix_papers_user_id"), "papers", ["user_id"], unique=False)
-    op.create_index(op.f("ix_papers_category_id"), "papers", ["category_id"], unique=False)
+    op.create_index(
+        op.f("ix_papers_category_id"), "papers", ["category_id"], unique=False
+    )
 
     op.create_table(
         "paper_authors",
@@ -154,3 +178,4 @@ def downgrade() -> None:
 
     op.drop_table("users")
     paper_status.drop(op.get_bind())
+    paper_source.drop(op.get_bind())

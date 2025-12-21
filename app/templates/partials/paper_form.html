@@ -1,0 +1,105 @@
+{% if error %}
+<div class="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+    {{ error }}
+</div>
+{% endif %}
+
+<div class="space-y-4">
+    <!-- Title -->
+    <div>
+        <label for="title" class="block text-sm font-medium text-gray-700 mb-1">Title <span class="text-red-500">*</span></label>
+        <input type="text" id="title" name="title" required
+               value="{{ paper.title if paper else '' }}"
+               class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+    </div>
+
+    <!-- Authors -->
+    <div>
+        <label for="authors" class="block text-sm font-medium text-gray-700 mb-1">Authors</label>
+        <input type="text" id="authors" name="authors"
+               value="{{ paper.authors|join(', ') if paper and paper.authors else '' }}"
+               placeholder="Comma-separated names"
+               class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+        <p class="text-sm text-gray-500 mt-1">Separate multiple authors with commas</p>
+    </div>
+
+    <!-- Abstract -->
+    <div>
+        <label for="abstract" class="block text-sm font-medium text-gray-700 mb-1">Abstract</label>
+        <textarea id="abstract" name="abstract" rows="4"
+                  class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">{{ paper.abstract if paper else '' }}</textarea>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <!-- Status -->
+        <div>
+            <label for="status" class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+            <select id="status" name="status"
+                    class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <option value="PLANNED" {% if not paper or paper.status == 'PLANNED' %}selected{% endif %}>Planned</option>
+                <option value="READING" {% if paper and paper.status == 'READING' %}selected{% endif %}>Reading</option>
+                <option value="READ" {% if paper and paper.status == 'READ' %}selected{% endif %}>Read</option>
+            </select>
+        </div>
+
+        <!-- Category -->
+        <div>
+            <label for="category_id" class="block text-sm font-medium text-gray-700 mb-1">Category</label>
+            <select id="category_id" name="category_id"
+                    class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <option value="">-- None --</option>
+                {% for cat in categories %}
+                <option value="{{ cat.id }}" {% if paper and paper.category_id == cat.id %}selected{% endif %}>{{ cat.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <!-- URL -->
+        <div>
+            <label for="url" class="block text-sm font-medium text-gray-700 mb-1">URL</label>
+            <input type="url" id="url" name="url"
+                   value="{{ paper.url if paper else '' }}"
+                   class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+        </div>
+
+        <!-- Venue/Year -->
+        <div>
+            <label for="venue_year" class="block text-sm font-medium text-gray-700 mb-1">Venue / Year</label>
+            <input type="text" id="venue_year" name="venue_year"
+                   value="{{ paper.venue_year if paper else '' }}"
+                   placeholder="e.g., NeurIPS 2023"
+                   class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+        </div>
+    </div>
+
+    <!-- Notes -->
+    <div>
+        <label for="notes" class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+        <textarea id="notes" name="notes" rows="3"
+                  placeholder="Your reading notes..."
+                  class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">{{ paper.notes if paper else '' }}</textarea>
+    </div>
+
+    <!-- Hidden fields for arXiv data -->
+    <input type="hidden" name="source" value="{{ paper.source if paper else 'MANUAL' }}">
+    <input type="hidden" name="arxiv_id" value="{{ paper.arxiv_id if paper else '' }}">
+    <input type="hidden" name="arxiv_version" value="{{ paper.arxiv_version if paper else '' }}">
+    <input type="hidden" name="arxiv_primary_category" value="{{ paper.arxiv_primary_category if paper else '' }}">
+    <input type="hidden" name="arxiv_published_at" value="{{ paper.arxiv_published_at if paper else '' }}">
+    <input type="hidden" name="arxiv_updated_at" value="{{ paper.arxiv_updated_at if paper else '' }}">
+    <input type="hidden" name="pdf_url" value="{{ paper.pdf_url if paper else '' }}">
+    <input type="hidden" name="doi" value="{{ paper.doi if paper else '' }}">
+    <input type="hidden" name="journal_ref" value="{{ paper.journal_ref if paper else '' }}">
+
+    {% if paper and paper.arxiv_id %}
+    <div class="p-3 bg-orange-50 rounded-lg text-sm">
+        <span class="font-medium text-orange-800">arXiv:</span>
+        <span class="text-orange-700">{{ paper.arxiv_id }}{% if paper.arxiv_version %}{{ paper.arxiv_version }}{% endif %}</span>
+        {% if paper.arxiv_primary_category %}
+        <span class="ml-2 text-orange-600">[{{ paper.arxiv_primary_category }}]</span>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
