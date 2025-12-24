@@ -8,10 +8,9 @@ from pathlib import Path
 # Add project root to path for app imports
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from sqlalchemy import engine_from_config, pool
 from alembic import context
 
-from app.db import Base, DATABASE_URL
+from app.db import Base, engine
 import app.models  # noqa: F401
 
 # this is the Alembic Config object, which provides
@@ -25,21 +24,15 @@ if config.config_file_name is not None:
 
 # add your model's MetaData object here
 # for 'autogenerate' support
-# from myapp import mymodel
-# target_metadata = mymodel.Base.metadata
-# target_metadata = None
 target_metadata = Base.metadata
-
-# Override sqlalchemy.url with env var or db.py default
-config.set_main_option("sqlalchemy.url", os.getenv("DATABASE_URL", DATABASE_URL))
 
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
 
-    url = config.get_main_option("sqlalchemy.url")
+    # Use the engine URL from app.db
     context.configure(
-        url=url,
+        url=str(engine.url),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -52,13 +45,8 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
 
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
-
-    with connectable.connect() as connection:
+    # Use the engine from app.db which has proper connect_args for libsql
+    with engine.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():
