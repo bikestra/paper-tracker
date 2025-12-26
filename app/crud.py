@@ -378,7 +378,9 @@ def delete_paper(db: Session, paper_id: int, user_id: int = DEFAULT_USER_ID) -> 
     return True
 
 
-def like_paper(db: Session, paper_id: int, user_id: int = DEFAULT_USER_ID) -> int | None:
+def like_paper(
+    db: Session, paper_id: int, user_id: int = DEFAULT_USER_ID
+) -> int | None:
     """Increment likes for a paper. Returns new like count or None if not found."""
     paper = get_paper(db, paper_id, user_id)
     if not paper:

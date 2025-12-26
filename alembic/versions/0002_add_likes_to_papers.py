@@ -16,7 +16,9 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("papers", sa.Column("likes", sa.Integer(), nullable=False, server_default="0"))
+    op.add_column(
+        "papers", sa.Column("likes", sa.Integer(), nullable=False, server_default="0")
+    )
 
 
 def downgrade() -> None:

@@ -1,10 +1,29 @@
+import logging
 import os
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./paper_tracker.db")
+logger = logging.getLogger(__name__)
+
+# Check if running in Cloud Run (K_SERVICE is set by Cloud Run)
+IS_CLOUD_RUN = os.getenv("K_SERVICE") is not None
+
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+
+if not DATABASE_URL:
+    if IS_CLOUD_RUN:
+        # In production, DATABASE_URL must be set
+        raise RuntimeError(
+            "DATABASE_URL environment variable is not set! "
+            "The app cannot start without a database connection. "
+            "Set DATABASE_URL in Cloud Run environment variables."
+        )
+    else:
+        # Local development - use SQLite
+        DATABASE_URL = "sqlite:///./paper_tracker.db"
+        logger.info("Using local SQLite database (DATABASE_URL not set)")
 
 # Handle different database backends
 connect_args = {}

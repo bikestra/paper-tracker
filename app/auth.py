@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import secrets
 
@@ -12,11 +13,18 @@ from sqlalchemy.orm import Session
 from . import crud, models
 from .db import get_db
 
+logger = logging.getLogger(__name__)
+
 # App password from environment
 APP_PASSWORD = os.getenv("APP_PASSWORD", "")
 
 # Secret key for signing session tokens
-SESSION_SECRET = os.getenv("SESSION_SECRET", secrets.token_hex(32))
+SESSION_SECRET = os.getenv("SESSION_SECRET", "")
+if not SESSION_SECRET:
+    logger.warning(
+        "SESSION_SECRET not set - generating random secret (sessions won't persist across restarts)"
+    )
+    SESSION_SECRET = secrets.token_hex(32)
 
 # Cookie name
 SESSION_COOKIE = "paper_tracker_session"
@@ -67,11 +75,23 @@ def get_current_user(
     Raises NotAuthenticatedException if not authenticated.
     """
     if not is_authenticated(session):
+        logger.info(
+            f"User not authenticated (session={'present' if session else 'missing'})"
+        )
         raise NotAuthenticatedException()
 
     # For password auth, use default user (single-user mode)
     user = crud.get_user_by_id(db, crud.DEFAULT_USER_ID)
     if user:
+        logger.debug(f"Found user id={user.id}")
         return user
+
     # Create default user if doesn't exist
-    return crud.get_or_create_user_by_email(db, "user@paper-tracker.local")
+    logger.warning(
+        f"Default user (id={crud.DEFAULT_USER_ID}) not found, creating new user"
+    )
+    new_user = crud.get_or_create_user_by_email(db, "user@paper-tracker.local")
+    logger.warning(
+        f"Created/found user with id={new_user.id} - papers may not be visible if they belong to a different user"
+    )
+    return new_user

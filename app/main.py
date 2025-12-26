@@ -8,9 +8,10 @@ from pathlib import Path
 from typing import Annotated, Optional
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from . import crud, models, schemas
@@ -40,6 +41,7 @@ async def timing_middleware(request: Request, call_next):
     logger.info(f"{request.method} {request.url.path} took {elapsed:.3f}s")
     return response
 
+
 # Templates
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
@@ -56,6 +58,63 @@ def on_startup() -> None:
 async def not_authenticated_handler(request: Request, exc: NotAuthenticatedException):
     """Redirect to login page when not authenticated."""
     return RedirectResponse(url="/login", status_code=303)
+
+
+@app.exception_handler(SQLAlchemyError)
+async def database_error_handler(request: Request, exc: SQLAlchemyError):
+    """Handle database errors with user-friendly messages."""
+    logger.error(f"Database error: {exc}")
+
+    # Extract a user-friendly message
+    error_msg = str(exc.orig) if hasattr(exc, "orig") else str(exc)
+
+    # Check for common errors and provide better messages
+    if "no such column" in error_msg:
+        error_msg = "Database schema mismatch. Please run migrations: make db-upgrade"
+    elif "no such table" in error_msg:
+        error_msg = "Database tables missing. Please run migrations: make db-upgrade"
+    elif "UNIQUE constraint failed" in error_msg:
+        error_msg = "This item already exists."
+    elif "FOREIGN KEY constraint failed" in error_msg:
+        error_msg = "Cannot delete: this item is referenced by other records."
+
+    # For HTMX requests, return plain text error
+    if request.headers.get("HX-Request"):
+        return HTMLResponse(content=error_msg, status_code=500)
+
+    # For API requests (JSON), return JSON error
+    if request.headers.get("Accept", "").startswith("application/json"):
+        return JSONResponse(content={"detail": error_msg}, status_code=500)
+
+    # For regular page loads, render with error
+    return templates.TemplateResponse(
+        "base.html",
+        {"request": request, "error": error_msg},
+        status_code=500,
+    )
+
+
+@app.exception_handler(Exception)
+async def general_error_handler(request: Request, exc: Exception):
+    """Catch-all handler for unexpected errors."""
+    logger.error(f"Unexpected error: {type(exc).__name__}: {exc}")
+
+    error_msg = f"An unexpected error occurred: {type(exc).__name__}"
+
+    # For HTMX requests, return plain text error
+    if request.headers.get("HX-Request"):
+        return HTMLResponse(content=error_msg, status_code=500)
+
+    # For API requests (JSON), return JSON error
+    if request.headers.get("Accept", "").startswith("application/json"):
+        return JSONResponse(content={"detail": error_msg}, status_code=500)
+
+    # For regular page loads, render with error
+    return templates.TemplateResponse(
+        "base.html",
+        {"request": request, "error": error_msg},
+        status_code=500,
+    )
 
 
 # --- Health check ---
@@ -128,7 +187,9 @@ def home(
     user_id = current_user.id
     t0 = time.perf_counter()
 
-    papers = crud.get_papers(db, user_id=user_id, status=status, category_id=category_id)
+    papers = crud.get_papers(
+        db, user_id=user_id, status=status, category_id=category_id
+    )
     t1 = time.perf_counter()
     logger.info(f"  get_papers(status={status.value}): {t1-t0:.3f}s")
 
@@ -270,7 +331,9 @@ def author_detail_page(
         except ValueError:
             pass
 
-    papers = crud.get_papers_by_author(db, author_id, user_id=current_user.id, status=status_enum)
+    papers = crud.get_papers_by_author(
+        db, author_id, user_id=current_user.id, status=status_enum
+    )
 
     return templates.TemplateResponse(
         "author_detail.html",
@@ -314,7 +377,9 @@ def papers_partial(
     current_user: models.User = Depends(get_current_user),
 ):
     """Paper list partial for HTMX."""
-    papers = crud.get_papers(db, user_id=current_user.id, status=status, category_id=category_id)
+    papers = crud.get_papers(
+        db, user_id=current_user.id, status=status, category_id=category_id
+    )
     return templates.TemplateResponse(
         "partials/paper_list.html",
         {
@@ -586,7 +651,9 @@ def delete_paper(
     crud.delete_paper(db, paper_id, user_id=current_user.id)
 
     # Return updated paper list
-    papers = crud.get_papers(db, user_id=current_user.id, status=status, category_id=category_id)
+    papers = crud.get_papers(
+        db, user_id=current_user.id, status=status, category_id=category_id
+    )
     return templates.TemplateResponse(
         "partials/paper_list.html",
         {

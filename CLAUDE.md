@@ -30,7 +30,7 @@ pytest tests/ -v -m "not slow"
 
 FastAPI web application for tracking academic paper reading lists, using SQLAlchemy ORM with SQLite (default) or any SQL database via `DATABASE_URL` env var. Server-rendered HTML with Jinja2 templates, HTMX for interactivity, and SortableJS for drag-and-drop.
 
-**Single-user scope**: All queries filter by `user_id=1` (seeded by migration). Auth to be added later.
+**Single-user scope**: All queries filter by authenticated user. Password auth via `APP_PASSWORD` env var (if not set, auth is disabled for local dev).
 
 ### Core Models (`app/models.py`)
 
@@ -78,10 +78,22 @@ FastAPI web application for tracking academic paper reading lists, using SQLAlch
 
 **Database:** Turso (libsql) - connection string in `DATABASE_URL` env var
 
-**Environment Variables (Cloud Run):**
-- `DATABASE_URL` - Turso connection string
+**Environment Variables (Cloud Run) - REQUIRED:**
+- `DATABASE_URL` - Turso connection string (app will fail to start without this in production)
 - `APP_PASSWORD` - Login password
-- `SESSION_SECRET` - Cookie signing key
+- `SESSION_SECRET` - Cookie signing key (must be stable for sessions to persist)
+
+**Turso Database:**
+```bash
+# Get database URL
+~/.turso/turso db show paper-tracker --url
+
+# Create auth token
+~/.turso/turso db tokens create paper-tracker
+
+# Full DATABASE_URL format:
+# libsql://<db-name>-<username>.aws-us-west-2.turso.io?authToken=<token>
+```
 
 **Deploy Commands:**
 ```bash
@@ -94,9 +106,22 @@ docker build --platform linux/amd64 -t us-central1-docker.pkg.dev/project-f6dcbf
 # Push to Artifact Registry
 docker push us-central1-docker.pkg.dev/project-f6dcbf1a-1498-4bd2-a78/paper-tracker/paper-tracker:latest
 
-# Deploy to Cloud Run
+# Deploy to Cloud Run (env vars persist from previous revision)
 gcloud run deploy paper-tracker \
   --image=us-central1-docker.pkg.dev/project-f6dcbf1a-1498-4bd2-a78/paper-tracker/paper-tracker:latest \
   --region=us-central1 \
   --allow-unauthenticated
+
+# IMPORTANT: Verify env vars after deploy
+gcloud run services describe paper-tracker --region=us-central1 \
+  --format="yaml(spec.template.spec.containers[0].env)"
+
+# If DATABASE_URL is missing, set it (get values from Turso):
+gcloud run services update paper-tracker --region=us-central1 \
+  --set-env-vars="DATABASE_URL=libsql://paper-tracker-bikestra.aws-us-west-2.turso.io?authToken=<token>"
 ```
+
+**Troubleshooting:**
+- If papers don't show: Check DATABASE_URL is set in Cloud Run env vars
+- If login doesn't persist: Check SESSION_SECRET is set and stable
+- View logs: `gcloud run services logs read paper-tracker --region=us-central1 --limit=50`
