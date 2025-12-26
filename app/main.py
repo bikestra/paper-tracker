@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -13,9 +15,30 @@ from sqlalchemy.orm import Session
 
 from . import crud, models, schemas
 from .arxiv import ArxivError, fetch_arxiv_metadata, parse_arxiv_input
+from .auth import (
+    NotAuthenticatedException,
+    SESSION_COOKIE,
+    _create_session_token,
+    get_current_user,
+    verify_password,
+)
 from .db import Base, engine, get_db
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 app = FastAPI(title="Paper Tracker")
+
+
+@app.middleware("http")
+async def timing_middleware(request: Request, call_next):
+    """Log request timing."""
+    start = time.perf_counter()
+    response = await call_next(request)
+    elapsed = time.perf_counter() - start
+    logger.info(f"{request.method} {request.url.path} took {elapsed:.3f}s")
+    return response
 
 # Templates
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
@@ -24,6 +47,15 @@ templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 @app.on_event("startup")
 def on_startup() -> None:
     Base.metadata.bind = engine
+
+
+# --- Exception handler for auth redirect ---
+
+
+@app.exception_handler(NotAuthenticatedException)
+async def not_authenticated_handler(request: Request, exc: NotAuthenticatedException):
+    """Redirect to login page when not authenticated."""
+    return RedirectResponse(url="/login", status_code=303)
 
 
 # --- Health check ---
@@ -35,6 +67,52 @@ def health_check(db: Session = Depends(get_db)) -> schemas.Healthcheck:
     return schemas.Healthcheck(message="Paper Tracker API is running")
 
 
+# --- Login/Logout ---
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request, error: str = ""):
+    """Login page."""
+    return templates.TemplateResponse(
+        "login.html",
+        {"request": request, "error": error},
+    )
+
+
+@app.post("/login")
+def login(
+    request: Request,
+    password: Annotated[str, Form()],
+):
+    """Handle login form submission."""
+    if verify_password(password):
+        response = RedirectResponse(url="/", status_code=303)
+        response.set_cookie(
+            key=SESSION_COOKIE,
+            value=_create_session_token(),
+            httponly=True,
+            samesite="lax",
+            secure=True,  # Only send over HTTPS
+            max_age=60 * 60 * 24 * 30,  # 30 days
+        )
+        return response
+
+    # Invalid password - show error
+    return templates.TemplateResponse(
+        "login.html",
+        {"request": request, "error": "Invalid password"},
+        status_code=401,
+    )
+
+
+@app.post("/logout")
+def logout():
+    """Log out by clearing session cookie."""
+    response = RedirectResponse(url="/login", status_code=303)
+    response.delete_cookie(key=SESSION_COOKIE)
+    return response
+
+
 # --- HTML Pages ---
 
 
@@ -44,13 +122,25 @@ def home(
     status: models.PaperStatus = Query(models.PaperStatus.PLANNED),
     category_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     """Main page with paper list."""
-    papers = crud.get_papers(db, status=status, category_id=category_id)
-    categories = crud.get_categories(db)
+    user_id = current_user.id
+    t0 = time.perf_counter()
+
+    papers = crud.get_papers(db, user_id=user_id, status=status, category_id=category_id)
+    t1 = time.perf_counter()
+    logger.info(f"  get_papers(status={status.value}): {t1-t0:.3f}s")
+
+    categories = crud.get_categories(db, user_id=user_id)
+    t2 = time.perf_counter()
+    logger.info(f"  get_categories: {t2-t1:.3f}s")
 
     # Get paper counts per status
-    all_papers = crud.get_papers(db)
+    all_papers = crud.get_papers(db, user_id=user_id)
+    t3 = time.perf_counter()
+    logger.info(f"  get_papers(all): {t3-t2:.3f}s")
+
     counts = {
         "PLANNED": sum(1 for p in all_papers if p.status == models.PaperStatus.PLANNED),
         "READING": sum(1 for p in all_papers if p.status == models.PaperStatus.READING),
@@ -67,14 +157,19 @@ def home(
             "category_id": category_id,
             "counts": counts,
             "active_page": "home",
+            "user_email": current_user.email,
         },
     )
 
 
 @app.get("/add", response_class=HTMLResponse)
-def add_paper_page(request: Request, db: Session = Depends(get_db)):
+def add_paper_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     """Add paper form page."""
-    categories = crud.get_categories(db)
+    categories = crud.get_categories(db, user_id=current_user.id)
     return templates.TemplateResponse(
         "add_paper.html",
         {
@@ -91,13 +186,14 @@ def edit_paper_page(
     request: Request,
     paper_id: int,
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     """Edit paper form page."""
-    paper = crud.get_paper(db, paper_id)
+    paper = crud.get_paper(db, paper_id, user_id=current_user.id)
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
 
-    categories = crud.get_categories(db)
+    categories = crud.get_categories(db, user_id=current_user.id)
 
     # Convert paper to dict-like for template
     paper_data = {
@@ -137,9 +233,13 @@ def edit_paper_page(
 
 
 @app.get("/authors", response_class=HTMLResponse)
-def authors_page(request: Request, db: Session = Depends(get_db)):
+def authors_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     """Authors list page."""
-    authors = crud.get_authors(db)
+    authors = crud.get_authors(db, user_id=current_user.id)
     return templates.TemplateResponse(
         "authors.html",
         {
@@ -156,9 +256,10 @@ def author_detail_page(
     author_id: int,
     status: Optional[str] = Query(None),
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     """Author detail page with papers."""
-    author = crud.get_author(db, author_id)
+    author = crud.get_author(db, author_id, user_id=current_user.id)
     if not author:
         raise HTTPException(status_code=404, detail="Author not found")
 
@@ -169,7 +270,7 @@ def author_detail_page(
         except ValueError:
             pass
 
-    papers = crud.get_papers_by_author(db, author_id, status=status_enum)
+    papers = crud.get_papers_by_author(db, author_id, user_id=current_user.id, status=status_enum)
 
     return templates.TemplateResponse(
         "author_detail.html",
@@ -184,9 +285,13 @@ def author_detail_page(
 
 
 @app.get("/categories", response_class=HTMLResponse)
-def categories_page(request: Request, db: Session = Depends(get_db)):
+def categories_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     """Categories management page."""
-    categories = crud.get_categories(db)
+    categories = crud.get_categories(db, user_id=current_user.id)
     return templates.TemplateResponse(
         "categories.html",
         {
@@ -206,9 +311,10 @@ def papers_partial(
     status: models.PaperStatus = Query(models.PaperStatus.PLANNED),
     category_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     """Paper list partial for HTMX."""
-    papers = crud.get_papers(db, status=status, category_id=category_id)
+    papers = crud.get_papers(db, user_id=current_user.id, status=status, category_id=category_id)
     return templates.TemplateResponse(
         "partials/paper_list.html",
         {
@@ -221,9 +327,13 @@ def papers_partial(
 
 
 @app.get("/partials/categories", response_class=HTMLResponse)
-def categories_partial(request: Request, db: Session = Depends(get_db)):
+def categories_partial(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     """Categories list partial for HTMX."""
-    categories = crud.get_categories(db)
+    categories = crud.get_categories(db, user_id=current_user.id)
     return templates.TemplateResponse(
         "partials/category_list.html",
         {"request": request, "categories": categories},
@@ -238,9 +348,10 @@ def fetch_arxiv(
     request: Request,
     url_or_id: Annotated[str, Form()],
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     """Fetch arXiv metadata and return populated form."""
-    categories = crud.get_categories(db)
+    categories = crud.get_categories(db, user_id=current_user.id)
 
     try:
         arxiv_id, version = parse_arxiv_input(url_or_id)
@@ -308,6 +419,7 @@ def create_paper(
     doi: Annotated[str, Form()] = "",
     journal_ref: Annotated[str, Form()] = "",
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     """Create a new paper."""
     from datetime import datetime
@@ -347,8 +459,41 @@ def create_paper(
         journal_ref=journal_ref or None,
     )
 
-    crud.create_paper(db, data)
+    crud.create_paper(db, data, user_id=current_user.id)
     return RedirectResponse(url=f"/?status={status}", status_code=303)
+
+
+@app.post("/papers/reorder")
+def reorder_papers(
+    data: schemas.ReorderRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Reorder papers."""
+    success = crud.reorder_papers(
+        db,
+        status=data.status,
+        paper_ids=data.paper_ids,
+        user_id=current_user.id,
+        category_id=data.category_id,
+    )
+    if not success:
+        raise HTTPException(status_code=400, detail="Invalid paper IDs")
+    return {"status": "ok"}
+
+
+@app.post("/papers/{paper_id}/like", response_class=HTMLResponse)
+def like_paper(
+    request: Request,
+    paper_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Increment likes for a paper. Returns updated like count."""
+    likes = crud.like_paper(db, paper_id, user_id=current_user.id)
+    if likes is None:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    return f'<span class="likes-count">{likes}</span>'
 
 
 @app.post("/papers/{paper_id}")
@@ -373,9 +518,12 @@ def update_paper(
     doi: Annotated[str, Form()] = "",
     journal_ref: Annotated[str, Form()] = "",
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     """Update a paper."""
     from datetime import datetime
+
+    t0 = time.perf_counter()
 
     # Parse authors
     author_list = [a.strip() for a in authors.split(",") if a.strip()]
@@ -411,7 +559,10 @@ def update_paper(
         journal_ref=journal_ref or None,
     )
 
-    paper = crud.update_paper(db, paper_id, data)
+    paper = crud.update_paper(db, paper_id, data, user_id=current_user.id)
+    t1 = time.perf_counter()
+    logger.info(f"  update_paper: {t1-t0:.3f}s")
+
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
 
@@ -423,18 +574,19 @@ def delete_paper(
     request: Request,
     paper_id: int,
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     """Delete a paper."""
-    paper = crud.get_paper(db, paper_id)
+    paper = crud.get_paper(db, paper_id, user_id=current_user.id)
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
 
     status = paper.status
     category_id = paper.category_id
-    crud.delete_paper(db, paper_id)
+    crud.delete_paper(db, paper_id, user_id=current_user.id)
 
     # Return updated paper list
-    papers = crud.get_papers(db, status=status, category_id=category_id)
+    papers = crud.get_papers(db, user_id=current_user.id, status=status, category_id=category_id)
     return templates.TemplateResponse(
         "partials/paper_list.html",
         {
@@ -451,11 +603,12 @@ def refresh_arxiv(
     request: Request,
     paper_id: int,
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     """Refresh paper metadata from arXiv."""
-    categories = crud.get_categories(db)
+    categories = crud.get_categories(db, user_id=current_user.id)
 
-    paper = crud.refresh_paper_from_arxiv(db, paper_id)
+    paper = crud.refresh_paper_from_arxiv(db, paper_id, user_id=current_user.id)
     if not paper:
         return templates.TemplateResponse(
             "partials/paper_form.html",
@@ -498,23 +651,6 @@ def refresh_arxiv(
     )
 
 
-@app.post("/papers/reorder")
-def reorder_papers(
-    data: schemas.ReorderRequest,
-    db: Session = Depends(get_db),
-):
-    """Reorder papers."""
-    success = crud.reorder_papers(
-        db,
-        status=data.status,
-        paper_ids=data.paper_ids,
-        category_id=data.category_id,
-    )
-    if not success:
-        raise HTTPException(status_code=400, detail="Invalid paper IDs")
-    return {"status": "ok"}
-
-
 # --- Category Actions ---
 
 
@@ -523,10 +659,11 @@ def create_category(
     request: Request,
     name: Annotated[str, Form()],
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     """Create a category."""
-    crud.create_category(db, schemas.CategoryCreate(name=name))
-    categories = crud.get_categories(db)
+    crud.create_category(db, schemas.CategoryCreate(name=name), user_id=current_user.id)
+    categories = crud.get_categories(db, user_id=current_user.id)
     return templates.TemplateResponse(
         "partials/category_list.html",
         {"request": request, "categories": categories},
@@ -538,9 +675,10 @@ def update_category(
     category_id: int,
     data: schemas.CategoryUpdate,
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     """Update a category."""
-    category = crud.update_category(db, category_id, data)
+    category = crud.update_category(db, category_id, data, user_id=current_user.id)
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
     return {"status": "ok"}
@@ -551,10 +689,11 @@ def delete_category(
     request: Request,
     category_id: int,
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     """Delete a category."""
-    crud.delete_category(db, category_id)
-    categories = crud.get_categories(db)
+    crud.delete_category(db, category_id, user_id=current_user.id)
+    categories = crud.get_categories(db, user_id=current_user.id)
     return templates.TemplateResponse(
         "partials/category_list.html",
         {"request": request, "categories": categories},

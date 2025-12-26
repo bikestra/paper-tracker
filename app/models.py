@@ -99,6 +99,7 @@ class Paper(Base):
         ForeignKey("categories.id"), nullable=True, index=True
     )
     order_index: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
+    likes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # arXiv-specific fields

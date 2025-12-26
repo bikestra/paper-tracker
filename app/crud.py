@@ -12,8 +12,31 @@ from . import models, schemas
 from .arxiv import normalize_author_name
 
 
-# Default user ID for single-user mode
+# Default user ID for single-user mode (local development)
 DEFAULT_USER_ID = 1
+
+
+# --- User CRUD ---
+
+
+def get_or_create_user_by_email(db: Session, email: str) -> models.User:
+    """Get or create a user by email."""
+    stmt = select(models.User).where(models.User.email == email)
+    user = db.scalar(stmt)
+    if user:
+        return user
+
+    # Create new user
+    user = models.User(email=email)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def get_user_by_id(db: Session, user_id: int) -> models.User | None:
+    """Get a user by ID."""
+    return db.get(models.User, user_id)
 
 
 # --- Category CRUD ---
@@ -248,15 +271,15 @@ def create_paper(
     db: Session, data: schemas.PaperCreate, user_id: int = DEFAULT_USER_ID
 ) -> models.Paper:
     """Create a new paper with authors."""
-    # Get max order_index for this status/category combination
-    stmt = select(func.max(models.Paper.order_index)).where(
+    # Get min order_index for this status/category combination (new papers go to top)
+    stmt = select(func.min(models.Paper.order_index)).where(
         models.Paper.user_id == user_id,
         models.Paper.status == data.status,
     )
     if data.category_id:
         stmt = stmt.where(models.Paper.category_id == data.category_id)
-    max_order = db.scalar(stmt) or 0
-    new_order = max_order + 10
+    min_order = db.scalar(stmt)
+    new_order = (min_order - 10) if min_order is not None else 0
 
     paper = models.Paper(
         user_id=user_id,
@@ -353,6 +376,16 @@ def delete_paper(db: Session, paper_id: int, user_id: int = DEFAULT_USER_ID) -> 
     db.delete(paper)
     db.commit()
     return True
+
+
+def like_paper(db: Session, paper_id: int, user_id: int = DEFAULT_USER_ID) -> int | None:
+    """Increment likes for a paper. Returns new like count or None if not found."""
+    paper = get_paper(db, paper_id, user_id)
+    if not paper:
+        return None
+    paper.likes += 1
+    db.commit()
+    return paper.likes
 
 
 def reorder_papers(

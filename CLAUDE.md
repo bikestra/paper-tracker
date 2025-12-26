@@ -62,3 +62,41 @@ FastAPI web application for tracking academic paper reading lists, using SQLAlch
 - `parse_arxiv_input()` - handles URLs (abs, pdf, ar5iv) and IDs (new/old format with optional version)
 - `fetch_arxiv_metadata()` - returns title, abstract, authors, categories, DOI, etc.
 - Authors matched by: ORCID > arxiv_id (normalized name slug) > name
+
+## GCP Deployment
+
+**Project:** `project-f6dcbf1a-1498-4bd2-a78` (named "Paper Tracker")
+
+**Cloud Run Service:**
+- Service: `paper-tracker`
+- Region: `us-central1`
+- URL: https://paper-tracker-531032889576.us-central1.run.app
+
+**Artifact Registry:**
+- Repository: `us-central1-docker.pkg.dev/project-f6dcbf1a-1498-4bd2-a78/paper-tracker`
+- Image: `paper-tracker:latest`
+
+**Database:** Turso (libsql) - connection string in `DATABASE_URL` env var
+
+**Environment Variables (Cloud Run):**
+- `DATABASE_URL` - Turso connection string
+- `APP_PASSWORD` - Login password
+- `SESSION_SECRET` - Cookie signing key
+
+**Deploy Commands:**
+```bash
+# IMPORTANT: Always source ~/.zshrc first to get gcloud in PATH
+source ~/.zshrc
+
+# Build for linux/amd64 (required for Cloud Run)
+docker build --platform linux/amd64 -t us-central1-docker.pkg.dev/project-f6dcbf1a-1498-4bd2-a78/paper-tracker/paper-tracker:latest .
+
+# Push to Artifact Registry
+docker push us-central1-docker.pkg.dev/project-f6dcbf1a-1498-4bd2-a78/paper-tracker/paper-tracker:latest
+
+# Deploy to Cloud Run
+gcloud run deploy paper-tracker \
+  --image=us-central1-docker.pkg.dev/project-f6dcbf1a-1498-4bd2-a78/paper-tracker/paper-tracker:latest \
+  --region=us-central1 \
+  --allow-unauthenticated
+```
