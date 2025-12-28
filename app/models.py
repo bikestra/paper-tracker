@@ -34,6 +34,13 @@ class PaperSource(str, Enum):
     MANUAL = "MANUAL"
 
 
+class DiscoverySourceType(str, Enum):
+    """Type of discovery source."""
+
+    PAPER = "PAPER"  # Discovered from another paper
+    TEXT = "TEXT"  # Free text description
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -51,6 +58,12 @@ class User(Base):
     )
     authors: Mapped[list[Author]] = relationship(
         "Author", back_populates="user", cascade="all, delete-orphan"
+    )
+    effort_logs: Mapped[list[EffortLog]] = relationship(
+        "EffortLog", back_populates="user", cascade="all, delete-orphan"
+    )
+    textbooks: Mapped[list[Textbook]] = relationship(
+        "Textbook", back_populates="user", cascade="all, delete-orphan"
     )
 
 
@@ -145,6 +158,15 @@ class Paper(Base):
         order_by="PaperAuthor.position",
         overlaps="author_links,paper_links",
     )
+    effort_logs: Mapped[list[EffortLog]] = relationship(
+        "EffortLog", back_populates="paper", cascade="all, delete-orphan"
+    )
+    discovery_sources: Mapped[list[DiscoverySource]] = relationship(
+        "DiscoverySource",
+        back_populates="paper",
+        cascade="all, delete-orphan",
+        foreign_keys="DiscoverySource.paper_id",
+    )
 
 
 class Author(Base):
@@ -201,4 +223,112 @@ class PaperAuthor(Base):
     )
     author: Mapped[Author] = relationship(
         "Author", back_populates="paper_links", overlaps="authors,papers"
+    )
+
+
+class EffortLog(Base):
+    """Log of effort/time spent on a paper or textbook."""
+
+    __tablename__ = "effort_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True
+    )
+    paper_id: Mapped[int | None] = mapped_column(
+        ForeignKey("papers.id"), nullable=True, index=True
+    )
+    textbook_id: Mapped[int | None] = mapped_column(
+        ForeignKey("textbooks.id"), nullable=True, index=True
+    )
+    points: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    user: Mapped[User] = relationship("User", back_populates="effort_logs")
+    paper: Mapped[Paper | None] = relationship("Paper", back_populates="effort_logs")
+    textbook: Mapped[Textbook | None] = relationship(
+        "Textbook", back_populates="effort_logs"
+    )
+
+
+class DiscoverySource(Base):
+    """How a paper was discovered (from another paper or a text description)."""
+
+    __tablename__ = "discovery_sources"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    paper_id: Mapped[int] = mapped_column(
+        ForeignKey("papers.id"), nullable=False, index=True
+    )
+    source_type: Mapped[DiscoverySourceType] = mapped_column(
+        SqlEnum(DiscoverySourceType), nullable=False
+    )
+    # If source_type is PAPER, this is the arXiv ID of the source paper
+    source_arxiv_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # If source_type is PAPER and the source paper is in our system
+    source_paper_id: Mapped[int | None] = mapped_column(
+        ForeignKey("papers.id"), nullable=True, index=True
+    )
+    # If source_type is TEXT, this is the description
+    source_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    paper: Mapped[Paper] = relationship(
+        "Paper", foreign_keys=[paper_id], back_populates="discovery_sources"
+    )
+    source_paper: Mapped[Paper | None] = relationship(
+        "Paper", foreign_keys=[source_paper_id]
+    )
+
+
+class TextbookStatus(str, Enum):
+    PLANNED = "PLANNED"
+    READING = "READING"
+    READ = "READ"
+
+
+class Textbook(Base):
+    """Textbook tracking model."""
+
+    __tablename__ = "textbooks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    authors: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    publisher: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    isbn: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    edition: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    status: Mapped[TextbookStatus] = mapped_column(
+        SqlEnum(TextbookStatus), default=TextbookStatus.PLANNED, nullable=False
+    )
+    category_id: Mapped[int | None] = mapped_column(
+        ForeignKey("categories.id"), nullable=True, index=True
+    )
+    order_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    likes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+    read_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    user: Mapped[User] = relationship("User", back_populates="textbooks")
+    category: Mapped[Category | None] = relationship("Category")
+    effort_logs: Mapped[list[EffortLog]] = relationship(
+        "EffortLog", back_populates="textbook", cascade="all, delete-orphan"
     )

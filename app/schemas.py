@@ -5,7 +5,7 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .models import PaperSource, PaperStatus
+from .models import DiscoverySourceType, PaperSource, PaperStatus, TextbookStatus
 
 
 # --- Category schemas ---
@@ -204,6 +204,122 @@ class User(BaseModel):
     created_at: dt.datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# --- Effort Log schemas ---
+
+
+class EffortLogCreate(BaseModel):
+    """Create a new effort log entry."""
+
+    paper_id: int
+    points: int = Field(default=1, ge=1)
+    note: Optional[str] = None
+
+
+class EffortLog(BaseModel):
+    """Effort log response schema."""
+
+    id: int
+    user_id: int
+    paper_id: int
+    points: int
+    note: Optional[str] = None
+    created_at: dt.datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class EffortLogWithPaper(EffortLog):
+    """Effort log with paper details for display."""
+
+    paper_title: str
+    paper_status: PaperStatus
+
+
+# --- Discovery Source schemas ---
+
+
+class DiscoverySourceCreate(BaseModel):
+    """Create a new discovery source."""
+
+    source_type: DiscoverySourceType
+    source_arxiv_id: Optional[str] = None  # For PAPER type
+    source_text: Optional[str] = None  # For TEXT type
+
+
+class DiscoverySource(BaseModel):
+    """Discovery source response schema."""
+
+    id: int
+    paper_id: int
+    source_type: DiscoverySourceType
+    source_arxiv_id: Optional[str] = None
+    source_paper_id: Optional[int] = None
+    source_text: Optional[str] = None
+    created_at: dt.datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- Textbook schemas ---
+
+
+class TextbookBase(BaseModel):
+    title: str = Field(..., min_length=1, max_length=500)
+    authors: Optional[str] = Field(None, max_length=500)
+    publisher: Optional[str] = Field(None, max_length=200)
+    year: Optional[int] = None
+    isbn: Optional[str] = Field(None, max_length=20)
+    edition: Optional[str] = Field(None, max_length=50)
+    url: Optional[str] = None
+    status: TextbookStatus = TextbookStatus.PLANNED
+    category_id: Optional[int] = None
+    notes: Optional[str] = None
+
+
+class TextbookCreate(TextbookBase):
+    """Schema for creating a textbook."""
+
+    pass
+
+
+class TextbookUpdate(BaseModel):
+    """Schema for updating a textbook. All fields optional."""
+
+    title: Optional[str] = Field(None, min_length=1, max_length=500)
+    authors: Optional[str] = Field(None, max_length=500)
+    publisher: Optional[str] = Field(None, max_length=200)
+    year: Optional[int] = None
+    isbn: Optional[str] = Field(None, max_length=20)
+    edition: Optional[str] = Field(None, max_length=50)
+    url: Optional[str] = None
+    status: Optional[TextbookStatus] = None
+    category_id: Optional[int] = None
+    notes: Optional[str] = None
+
+
+class Textbook(TextbookBase):
+    """Full textbook response schema."""
+
+    id: int
+    user_id: int
+    order_index: int
+    likes: int = 0
+    created_at: dt.datetime
+    updated_at: Optional[dt.datetime] = None
+    read_at: Optional[dt.datetime] = None
+    category: Optional[Category] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TextbookReorderRequest(BaseModel):
+    """Request to reorder textbooks."""
+
+    status: TextbookStatus
+    category_id: Optional[int] = None
+    textbook_ids: list[int] = Field(..., min_length=1)
 
 
 # --- Misc ---

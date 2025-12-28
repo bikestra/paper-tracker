@@ -1,7 +1,9 @@
 {% if papers %}
-<ul id="sortable-papers" class="space-y-3" data-status="{{ current_status }}" data-category-id="{{ category_id or '' }}">
+<ul id="sortable-papers" class="space-y-3" data-status="{{ current_status }}" data-category-id="{{ category_id or '' }}" data-sortable="{{ 'true' if sortable else 'false' }}">
     {% for paper in papers %}
+    {% with show_drag_handle=sortable, paper_effort=effort_totals.get(paper.id, 0) if effort_totals else 0, paper_source_count=source_counts.get(paper.id, 0) if source_counts else 0 %}
     {% include "partials/paper_row.html" %}
+    {% endwith %}
     {% endfor %}
 </ul>
 {% else %}

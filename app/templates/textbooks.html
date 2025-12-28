@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 
-{% block title %}Papers - Paper Tracker{% endblock %}
+{% block title %}Textbooks - Paper Tracker{% endblock %}
 
 {% block content %}
 <!-- Compact header -->
 <div class="flex items-center justify-between mb-3">
-    <h1 class="text-xl font-bold text-gray-900">Papers</h1>
-    <a href="/add" class="inline-flex items-center px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">
+    <h1 class="text-xl font-bold text-gray-900">Textbooks</h1>
+    <a href="/textbooks/add" class="inline-flex items-center px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">
         <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
         </svg>
@@ -16,17 +16,17 @@
 
 <!-- Status Tabs -->
 <div class="flex gap-1 mb-2">
-    <a href="/?status=PLANNED{% if category_id %}&category_id={{ category_id }}{% endif %}{% if sort_by != 'manual' %}&sort_by={{ sort_by }}{% endif %}"
+    <a href="/textbooks?status=PLANNED{% if category_id %}&category_id={{ category_id }}{% endif %}{% if sort_by != 'manual' %}&sort_by={{ sort_by }}{% endif %}"
        class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
               {% if current_status == 'PLANNED' %}bg-blue-100 text-blue-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">
         Planned <span class="text-xs opacity-75">{{ counts.PLANNED }}</span>
     </a>
-    <a href="/?status=READING{% if category_id %}&category_id={{ category_id }}{% endif %}{% if sort_by != 'manual' %}&sort_by={{ sort_by }}{% endif %}"
+    <a href="/textbooks?status=READING{% if category_id %}&category_id={{ category_id }}{% endif %}{% if sort_by != 'manual' %}&sort_by={{ sort_by }}{% endif %}"
        class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
               {% if current_status == 'READING' %}bg-yellow-100 text-yellow-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">
         Reading <span class="text-xs opacity-75">{{ counts.READING }}</span>
     </a>
-    <a href="/?status=READ{% if category_id %}&category_id={{ category_id }}{% endif %}{% if sort_by != 'manual' %}&sort_by={{ sort_by }}{% endif %}"
+    <a href="/textbooks?status=READ{% if category_id %}&category_id={{ category_id }}{% endif %}{% if sort_by != 'manual' %}&sort_by={{ sort_by }}{% endif %}"
        class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
               {% if current_status == 'READ' %}bg-green-100 text-green-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">
         Read <span class="text-xs opacity-75">{{ counts.READ }}</span>
@@ -37,31 +37,31 @@
 <div class="flex flex-wrap items-center gap-x-4 gap-y-1 mb-3 text-xs">
     <div class="flex items-center gap-1">
         <span class="text-gray-400">Sort:</span>
-        <a href="/?status={{ current_status }}{% if category_id %}&category_id={{ category_id }}{% endif %}"
+        <a href="/textbooks?status={{ current_status }}{% if category_id %}&category_id={{ category_id }}{% endif %}"
            class="px-2 py-0.5 rounded {% if sort_by == 'manual' %}bg-gray-700 text-white{% else %}text-gray-600 hover:bg-gray-100{% endif %}">Manual</a>
-        <a href="/?status={{ current_status }}{% if category_id %}&category_id={{ category_id }}{% endif %}&sort_by=likes"
+        <a href="/textbooks?status={{ current_status }}{% if category_id %}&category_id={{ category_id }}{% endif %}&sort_by=likes"
            class="px-2 py-0.5 rounded {% if sort_by == 'likes' %}bg-gray-700 text-white{% else %}text-gray-600 hover:bg-gray-100{% endif %}">Likes</a>
-        <a href="/?status={{ current_status }}{% if category_id %}&category_id={{ category_id }}{% endif %}&sort_by=added"
+        <a href="/textbooks?status={{ current_status }}{% if category_id %}&category_id={{ category_id }}{% endif %}&sort_by=added"
            class="px-2 py-0.5 rounded {% if sort_by == 'added' %}bg-gray-700 text-white{% else %}text-gray-600 hover:bg-gray-100{% endif %}">Added</a>
-        <a href="/?status={{ current_status }}{% if category_id %}&category_id={{ category_id }}{% endif %}&sort_by=read"
+        <a href="/textbooks?status={{ current_status }}{% if category_id %}&category_id={{ category_id }}{% endif %}&sort_by=read"
            class="px-2 py-0.5 rounded {% if sort_by == 'read' %}bg-gray-700 text-white{% else %}text-gray-600 hover:bg-gray-100{% endif %}">Read</a>
     </div>
     {% if categories %}
     <div class="flex items-center gap-1 flex-wrap">
         <span class="text-gray-400">Cat:</span>
-        <a href="/?status={{ current_status }}{% if sort_by != 'manual' %}&sort_by={{ sort_by }}{% endif %}"
+        <a href="/textbooks?status={{ current_status }}{% if sort_by != 'manual' %}&sort_by={{ sort_by }}{% endif %}"
            class="px-2 py-0.5 rounded {% if not category_id %}bg-gray-700 text-white{% else %}text-gray-600 hover:bg-gray-100{% endif %}">All</a>
         {% for cat in categories %}
-        <a href="/?status={{ current_status }}&category_id={{ cat.id }}{% if sort_by != 'manual' %}&sort_by={{ sort_by }}{% endif %}"
+        <a href="/textbooks?status={{ current_status }}&category_id={{ cat.id }}{% if sort_by != 'manual' %}&sort_by={{ sort_by }}{% endif %}"
            class="px-2 py-0.5 rounded {% if category_id == cat.id %}bg-gray-700 text-white{% else %}text-gray-600 hover:bg-gray-100{% endif %}">{{ cat.name }}</a>
         {% endfor %}
     </div>
     {% endif %}
 </div>
 
-<!-- Papers List -->
-<div id="paper-list">
-    {% include "partials/paper_list.html" %}
+<!-- Textbooks List -->
+<div id="textbook-list">
+    {% include "partials/textbook_list.html" %}
 </div>
 {% endblock %}
 
@@ -72,13 +72,13 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 document.body.addEventListener('htmx:afterSwap', function(evt) {
-    if (evt.detail.target.id === 'paper-list') {
+    if (evt.detail.target.id === 'textbook-list') {
         initSortable();
     }
 });
 
 function initSortable() {
-    const list = document.getElementById('sortable-papers');
+    const list = document.getElementById('sortable-textbooks');
     if (!list) return;
 
     // Check if sorting is enabled (only in manual sort mode)
@@ -92,19 +92,19 @@ function initSortable() {
         ghostClass: 'sortable-ghost',
         chosenClass: 'sortable-chosen',
         onEnd: function(evt) {
-            const paperIds = Array.from(list.querySelectorAll('[data-paper-id]'))
-                .map(el => parseInt(el.dataset.paperId));
+            const textbookIds = Array.from(list.querySelectorAll('[data-textbook-id]'))
+                .map(el => parseInt(el.dataset.textbookId));
 
             const status = list.dataset.status;
             const categoryId = list.dataset.categoryId || null;
 
-            fetch('/papers/reorder', {
+            fetch('/textbooks/reorder', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     status: status,
                     category_id: categoryId ? parseInt(categoryId) : null,
-                    paper_ids: paperIds
+                    textbook_ids: textbookIds
                 })
             });
         }

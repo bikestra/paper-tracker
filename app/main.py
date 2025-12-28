@@ -132,9 +132,18 @@ def health_check(db: Session = Depends(get_db)) -> schemas.Healthcheck:
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, error: str = ""):
     """Login page."""
+    from .auth import APP_PASSWORD, SESSION_SECRET
+    import os
+
+    config_warning = None
+    if not APP_PASSWORD:
+        config_warning = "APP_PASSWORD environment variable is not set. Authentication is disabled."
+    elif not os.getenv("SESSION_SECRET"):
+        config_warning = "SESSION_SECRET environment variable is not set. Sessions won't persist across server restarts."
+
     return templates.TemplateResponse(
         "login.html",
-        {"request": request, "error": error},
+        {"request": request, "error": error, "config_warning": config_warning},
     )
 
 
@@ -180,33 +189,41 @@ def home(
     request: Request,
     status: models.PaperStatus = Query(models.PaperStatus.PLANNED),
     category_id: Optional[int] = Query(None),
+    sort_by: str = Query("manual"),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
     """Main page with paper list."""
     user_id = current_user.id
-    t0 = time.perf_counter()
+
+    # Validate sort_by
+    valid_sorts = ("manual", "likes", "added", "read")
+    if sort_by not in valid_sorts:
+        sort_by = "manual"
 
     papers = crud.get_papers(
-        db, user_id=user_id, status=status, category_id=category_id
+        db, user_id=user_id, status=status, category_id=category_id, sort_by=sort_by
     )
-    t1 = time.perf_counter()
-    logger.info(f"  get_papers(status={status.value}): {t1-t0:.3f}s")
 
     categories = crud.get_categories(db, user_id=user_id)
-    t2 = time.perf_counter()
-    logger.info(f"  get_categories: {t2-t1:.3f}s")
 
     # Get paper counts per status
     all_papers = crud.get_papers(db, user_id=user_id)
-    t3 = time.perf_counter()
-    logger.info(f"  get_papers(all): {t3-t2:.3f}s")
 
     counts = {
         "PLANNED": sum(1 for p in all_papers if p.status == models.PaperStatus.PLANNED),
         "READING": sum(1 for p in all_papers if p.status == models.PaperStatus.READING),
         "READ": sum(1 for p in all_papers if p.status == models.PaperStatus.READ),
     }
+
+    # Get effort totals for all papers
+    effort_totals = crud.get_all_papers_effort_totals(db, user_id=user_id)
+
+    # Get source counts for all papers
+    source_counts = crud.get_all_papers_source_counts(db, user_id=user_id)
+
+    # Reordering only allowed in manual sort mode
+    sortable = sort_by == "manual"
 
     return templates.TemplateResponse(
         "index.html",
@@ -219,6 +236,10 @@ def home(
             "counts": counts,
             "active_page": "home",
             "user_email": current_user.email,
+            "sort_by": sort_by,
+            "sortable": sortable,
+            "effort_totals": effort_totals,
+            "source_counts": source_counts,
         },
     )
 
@@ -373,13 +394,28 @@ def papers_partial(
     request: Request,
     status: models.PaperStatus = Query(models.PaperStatus.PLANNED),
     category_id: Optional[int] = Query(None),
+    sort_by: str = Query("manual"),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
     """Paper list partial for HTMX."""
+    valid_sorts = ("manual", "likes", "added", "read")
+    if sort_by not in valid_sorts:
+        sort_by = "manual"
+
     papers = crud.get_papers(
-        db, user_id=current_user.id, status=status, category_id=category_id
+        db,
+        user_id=current_user.id,
+        status=status,
+        category_id=category_id,
+        sort_by=sort_by,
     )
+    sortable = sort_by == "manual"
+
+    # Get effort totals and source counts for all papers
+    effort_totals = crud.get_all_papers_effort_totals(db, user_id=current_user.id)
+    source_counts = crud.get_all_papers_source_counts(db, user_id=current_user.id)
+
     return templates.TemplateResponse(
         "partials/paper_list.html",
         {
@@ -387,6 +423,9 @@ def papers_partial(
             "papers": papers,
             "current_status": status.value,
             "category_id": category_id,
+            "sortable": sortable,
+            "effort_totals": effort_totals,
+            "source_counts": source_counts,
         },
     )
 
@@ -561,6 +600,151 @@ def like_paper(
     return f'<span class="likes-count">{likes}</span>'
 
 
+@app.post("/papers/{paper_id}/effort", response_class=HTMLResponse)
+def log_paper_effort(
+    request: Request,
+    paper_id: int,
+    points: Annotated[int, Form()] = 1,
+    note: Annotated[str, Form()] = "",
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Log effort points for a paper."""
+    effort_log = crud.create_effort_log(
+        db,
+        points=points,
+        note=note.strip() or None,
+        paper_id=paper_id,
+        user_id=current_user.id,
+    )
+    if effort_log is None:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    # Return updated effort total
+    total = crud.get_paper_effort_total(db, paper_id, user_id=current_user.id)
+    return f'<span class="effort-total">{total}</span>'
+
+
+@app.post("/textbooks/{textbook_id}/effort", response_class=HTMLResponse)
+def log_textbook_effort(
+    request: Request,
+    textbook_id: int,
+    points: Annotated[int, Form()] = 1,
+    note: Annotated[str, Form()] = "",
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Log effort points for a textbook."""
+    effort_log = crud.create_effort_log(
+        db,
+        points=points,
+        note=note.strip() or None,
+        textbook_id=textbook_id,
+        user_id=current_user.id,
+    )
+    if effort_log is None:
+        raise HTTPException(status_code=404, detail="Textbook not found")
+
+    # Return updated effort total
+    total = crud.get_textbook_effort_total(db, textbook_id, user_id=current_user.id)
+    return f'<span class="effort-total">{total}</span>'
+
+
+@app.get("/efforts", response_class=HTMLResponse)
+def efforts_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Page showing all effort logs chronologically."""
+    effort_logs = crud.get_effort_logs(db, user_id=current_user.id)
+    return templates.TemplateResponse(
+        "efforts.html",
+        {
+            "request": request,
+            "effort_logs": effort_logs,
+            "active_page": "efforts",
+        },
+    )
+
+
+# --- Discovery Source Routes ---
+
+
+@app.get("/partials/paper-sources/{paper_id}", response_class=HTMLResponse)
+def get_paper_sources(
+    request: Request,
+    paper_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Get discovery sources for a paper."""
+    sources = crud.get_discovery_sources(db, paper_id, user_id=current_user.id)
+    return templates.TemplateResponse(
+        "partials/paper_sources.html",
+        {
+            "request": request,
+            "sources": sources,
+            "paper_id": paper_id,
+        },
+    )
+
+
+@app.post("/papers/{paper_id}/sources", response_class=HTMLResponse)
+def add_paper_source(
+    request: Request,
+    paper_id: int,
+    source_type: Annotated[str, Form()],
+    source_arxiv_id: Annotated[str, Form()] = "",
+    source_text: Annotated[str, Form()] = "",
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Add a discovery source to a paper."""
+    source_type_enum = models.DiscoverySourceType(source_type)
+
+    crud.add_discovery_source(
+        db,
+        paper_id=paper_id,
+        source_type=source_type_enum,
+        source_arxiv_id=source_arxiv_id.strip() or None,
+        source_text=source_text.strip() or None,
+        user_id=current_user.id,
+    )
+
+    sources = crud.get_discovery_sources(db, paper_id, user_id=current_user.id)
+    return templates.TemplateResponse(
+        "partials/paper_sources.html",
+        {
+            "request": request,
+            "sources": sources,
+            "paper_id": paper_id,
+        },
+    )
+
+
+@app.delete("/papers/{paper_id}/sources/{source_id}", response_class=HTMLResponse)
+def delete_paper_source(
+    request: Request,
+    paper_id: int,
+    source_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Delete a discovery source from a paper."""
+    crud.delete_discovery_source(db, source_id, user_id=current_user.id)
+
+    sources = crud.get_discovery_sources(db, paper_id, user_id=current_user.id)
+    return templates.TemplateResponse(
+        "partials/paper_sources.html",
+        {
+            "request": request,
+            "sources": sources,
+            "paper_id": paper_id,
+        },
+    )
+
+
 @app.post("/papers/{paper_id}")
 def update_paper(
     request: Request,
@@ -654,6 +838,8 @@ def delete_paper(
     papers = crud.get_papers(
         db, user_id=current_user.id, status=status, category_id=category_id
     )
+    effort_totals = crud.get_all_papers_effort_totals(db, user_id=current_user.id)
+    source_counts = crud.get_all_papers_source_counts(db, user_id=current_user.id)
     return templates.TemplateResponse(
         "partials/paper_list.html",
         {
@@ -661,6 +847,8 @@ def delete_paper(
             "papers": papers,
             "current_status": status.value,
             "category_id": category_id,
+            "effort_totals": effort_totals,
+            "source_counts": source_counts,
         },
     )
 
@@ -737,6 +925,30 @@ def create_category(
     )
 
 
+@app.post("/partials/category-dropdown", response_class=HTMLResponse)
+def create_category_inline(
+    request: Request,
+    name: Annotated[str, Form()],
+    context: Annotated[str, Form()] = "paper",
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Create a category and return updated dropdown (for inline creation in forms)."""
+    new_category = crud.create_category(
+        db, schemas.CategoryCreate(name=name), user_id=current_user.id
+    )
+    categories = crud.get_categories(db, user_id=current_user.id)
+    return templates.TemplateResponse(
+        "partials/category_dropdown.html",
+        {
+            "request": request,
+            "categories": categories,
+            "selected_id": new_category.id,
+            "context": context,
+        },
+    )
+
+
 @app.put("/categories/{category_id}")
 def update_category(
     category_id: int,
@@ -764,4 +976,350 @@ def delete_category(
     return templates.TemplateResponse(
         "partials/category_list.html",
         {"request": request, "categories": categories},
+    )
+
+
+# --- Textbook Routes ---
+
+
+@app.get("/textbooks", response_class=HTMLResponse)
+def textbooks_page(
+    request: Request,
+    status: models.TextbookStatus = Query(models.TextbookStatus.PLANNED),
+    category_id: Optional[int] = Query(None),
+    sort_by: str = Query("manual"),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Textbooks list page."""
+    user_id = current_user.id
+
+    valid_sorts = ("manual", "likes", "added", "read")
+    if sort_by not in valid_sorts:
+        sort_by = "manual"
+
+    textbooks = crud.get_textbooks(
+        db, user_id=user_id, status=status, category_id=category_id, sort_by=sort_by
+    )
+
+    categories = crud.get_categories(db, user_id=user_id)
+
+    # Get textbook counts per status
+    all_textbooks = crud.get_textbooks(db, user_id=user_id)
+    counts = {
+        "PLANNED": sum(
+            1 for t in all_textbooks if t.status == models.TextbookStatus.PLANNED
+        ),
+        "READING": sum(
+            1 for t in all_textbooks if t.status == models.TextbookStatus.READING
+        ),
+        "READ": sum(1 for t in all_textbooks if t.status == models.TextbookStatus.READ),
+    }
+
+    # Get effort totals for all textbooks
+    effort_totals = crud.get_all_textbooks_effort_totals(db, user_id=user_id)
+
+    sortable = sort_by == "manual"
+
+    return templates.TemplateResponse(
+        "textbooks.html",
+        {
+            "request": request,
+            "textbooks": textbooks,
+            "categories": categories,
+            "current_status": status.value,
+            "category_id": category_id,
+            "counts": counts,
+            "active_page": "textbooks",
+            "sort_by": sort_by,
+            "sortable": sortable,
+            "effort_totals": effort_totals,
+        },
+    )
+
+
+@app.get("/textbooks/add", response_class=HTMLResponse)
+def add_textbook_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Add textbook form page."""
+    categories = crud.get_categories(db, user_id=current_user.id)
+    return templates.TemplateResponse(
+        "add_textbook.html",
+        {
+            "request": request,
+            "categories": categories,
+            "textbook": None,
+            "active_page": "textbooks",
+        },
+    )
+
+
+@app.post("/textbooks/fetch-isbn", response_class=HTMLResponse)
+def fetch_isbn(
+    request: Request,
+    isbn: Annotated[str, Form()],
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Fetch book metadata from Open Library by ISBN."""
+    from .openlibrary import OpenLibraryError, fetch_book_by_isbn
+
+    categories = crud.get_categories(db, user_id=current_user.id)
+
+    try:
+        metadata = fetch_book_by_isbn(isbn)
+
+        textbook_data = {
+            "title": metadata.title,
+            "authors": metadata.authors or "",
+            "publisher": metadata.publisher or "",
+            "year": metadata.year,
+            "isbn": metadata.isbn or "",
+            "edition": "",
+            "url": metadata.url or "",
+            "status": "PLANNED",
+            "category_id": None,
+            "notes": "",
+        }
+
+        return templates.TemplateResponse(
+            "partials/textbook_form.html",
+            {"request": request, "textbook": textbook_data, "categories": categories},
+        )
+
+    except OpenLibraryError as e:
+        return templates.TemplateResponse(
+            "partials/textbook_form.html",
+            {
+                "request": request,
+                "textbook": None,
+                "categories": categories,
+                "error": str(e),
+            },
+        )
+
+
+@app.post("/textbooks")
+def create_textbook(
+    request: Request,
+    title: Annotated[str, Form()],
+    authors: Annotated[str, Form()] = "",
+    publisher: Annotated[str, Form()] = "",
+    year: Annotated[str, Form()] = "",
+    isbn: Annotated[str, Form()] = "",
+    edition: Annotated[str, Form()] = "",
+    url: Annotated[str, Form()] = "",
+    status: Annotated[str, Form()] = "PLANNED",
+    category_id: Annotated[Optional[str], Form()] = None,
+    notes: Annotated[str, Form()] = "",
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Create a new textbook."""
+    cat_id = int(category_id) if category_id and category_id.strip() else None
+    year_int = int(year) if year and year.strip() else None
+
+    data = schemas.TextbookCreate(
+        title=title,
+        authors=authors or None,
+        publisher=publisher or None,
+        year=year_int,
+        isbn=isbn or None,
+        edition=edition or None,
+        url=url or None,
+        status=models.TextbookStatus(status),
+        category_id=cat_id,
+        notes=notes or None,
+    )
+
+    crud.create_textbook(db, data, user_id=current_user.id)
+    return RedirectResponse(url=f"/textbooks?status={status}", status_code=303)
+
+
+@app.get("/textbooks/{textbook_id}/edit", response_class=HTMLResponse)
+def edit_textbook_page(
+    request: Request,
+    textbook_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Edit textbook form page."""
+    textbook = crud.get_textbook(db, textbook_id, user_id=current_user.id)
+    if not textbook:
+        raise HTTPException(status_code=404, detail="Textbook not found")
+
+    categories = crud.get_categories(db, user_id=current_user.id)
+
+    textbook_data = {
+        "id": textbook.id,
+        "title": textbook.title,
+        "authors": textbook.authors,
+        "publisher": textbook.publisher,
+        "year": textbook.year,
+        "isbn": textbook.isbn,
+        "edition": textbook.edition,
+        "url": textbook.url,
+        "status": textbook.status.value,
+        "category_id": textbook.category_id,
+        "notes": textbook.notes,
+    }
+
+    return templates.TemplateResponse(
+        "edit_textbook.html",
+        {
+            "request": request,
+            "textbook": textbook_data,
+            "categories": categories,
+            "active_page": "textbooks",
+        },
+    )
+
+
+@app.post("/textbooks/{textbook_id}")
+def update_textbook(
+    request: Request,
+    textbook_id: int,
+    title: Annotated[str, Form()],
+    authors: Annotated[str, Form()] = "",
+    publisher: Annotated[str, Form()] = "",
+    year: Annotated[str, Form()] = "",
+    isbn: Annotated[str, Form()] = "",
+    edition: Annotated[str, Form()] = "",
+    url: Annotated[str, Form()] = "",
+    status: Annotated[str, Form()] = "PLANNED",
+    category_id: Annotated[Optional[str], Form()] = None,
+    notes: Annotated[str, Form()] = "",
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Update a textbook."""
+    cat_id = int(category_id) if category_id and category_id.strip() else None
+    year_int = int(year) if year and year.strip() else None
+
+    data = schemas.TextbookUpdate(
+        title=title,
+        authors=authors or None,
+        publisher=publisher or None,
+        year=year_int,
+        isbn=isbn or None,
+        edition=edition or None,
+        url=url or None,
+        status=models.TextbookStatus(status),
+        category_id=cat_id,
+        notes=notes or None,
+    )
+
+    textbook = crud.update_textbook(db, textbook_id, data, user_id=current_user.id)
+    if not textbook:
+        raise HTTPException(status_code=404, detail="Textbook not found")
+
+    return RedirectResponse(url=f"/textbooks?status={status}", status_code=303)
+
+
+@app.post("/textbooks/{textbook_id}/delete", response_class=HTMLResponse)
+def delete_textbook(
+    request: Request,
+    textbook_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Delete a textbook."""
+    textbook = crud.get_textbook(db, textbook_id, user_id=current_user.id)
+    if not textbook:
+        raise HTTPException(status_code=404, detail="Textbook not found")
+
+    status = textbook.status
+    category_id = textbook.category_id
+    crud.delete_textbook(db, textbook_id, user_id=current_user.id)
+
+    # Return updated textbook list
+    textbooks = crud.get_textbooks(
+        db, user_id=current_user.id, status=status, category_id=category_id
+    )
+    effort_totals = crud.get_all_textbooks_effort_totals(db, user_id=current_user.id)
+    return templates.TemplateResponse(
+        "partials/textbook_list.html",
+        {
+            "request": request,
+            "textbooks": textbooks,
+            "current_status": status.value,
+            "category_id": category_id,
+            "sortable": True,
+            "effort_totals": effort_totals,
+        },
+    )
+
+
+@app.post("/textbooks/{textbook_id}/like", response_class=HTMLResponse)
+def like_textbook(
+    request: Request,
+    textbook_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Increment likes for a textbook."""
+    likes = crud.like_textbook(db, textbook_id, user_id=current_user.id)
+    if likes is None:
+        raise HTTPException(status_code=404, detail="Textbook not found")
+    return f'<span class="likes-count">{likes}</span>'
+
+
+@app.post("/textbooks/reorder")
+def reorder_textbooks(
+    data: schemas.TextbookReorderRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Reorder textbooks."""
+    success = crud.reorder_textbooks(
+        db,
+        status=data.status,
+        textbook_ids=data.textbook_ids,
+        user_id=current_user.id,
+        category_id=data.category_id,
+    )
+    if not success:
+        raise HTTPException(status_code=400, detail="Invalid textbook IDs")
+    return {"status": "ok"}
+
+
+@app.get("/partials/textbooks", response_class=HTMLResponse)
+def textbooks_partial(
+    request: Request,
+    status: models.TextbookStatus = Query(models.TextbookStatus.PLANNED),
+    category_id: Optional[int] = Query(None),
+    sort_by: str = Query("manual"),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Textbook list partial for HTMX."""
+    valid_sorts = ("manual", "likes", "added", "read")
+    if sort_by not in valid_sorts:
+        sort_by = "manual"
+
+    textbooks = crud.get_textbooks(
+        db,
+        user_id=current_user.id,
+        status=status,
+        category_id=category_id,
+        sort_by=sort_by,
+    )
+    sortable = sort_by == "manual"
+
+    # Get effort totals for all textbooks
+    effort_totals = crud.get_all_textbooks_effort_totals(db, user_id=current_user.id)
+
+    return templates.TemplateResponse(
+        "partials/textbook_list.html",
+        {
+            "request": request,
+            "textbooks": textbooks,
+            "current_status": status.value,
+            "category_id": category_id,
+            "sortable": sortable,
+            "effort_totals": effort_totals,
+        },
     )

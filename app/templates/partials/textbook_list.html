@@ -1,0 +1,18 @@
+{% if textbooks %}
+<ul id="sortable-textbooks" class="space-y-3" data-status="{{ current_status }}" data-category-id="{{ category_id or '' }}" data-sortable="{{ 'true' if sortable else 'false' }}">
+    {% for textbook in textbooks %}
+    {% set textbook_effort = effort_totals.get(textbook.id, 0) if effort_totals else 0 %}
+    {% with show_drag_handle=sortable %}
+    {% include "partials/textbook_row.html" %}
+    {% endwith %}
+    {% endfor %}
+</ul>
+{% else %}
+<div class="text-center py-12 text-gray-500">
+    <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+    </svg>
+    <p class="mt-2">No textbooks found</p>
+    <a href="/textbooks/add" class="mt-4 inline-block text-blue-600 hover:text-blue-800">Add your first textbook</a>
+</div>
+{% endif %}

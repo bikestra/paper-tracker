@@ -95,7 +95,20 @@ FastAPI web application for tracking academic paper reading lists, using SQLAlch
 # libsql://<db-name>-<username>.aws-us-west-2.turso.io?authToken=<token>
 ```
 
-**Deploy Commands:**
+**Deploy Script (PREFERRED):**
+```bash
+# Use deploy.sh for deployments - it includes all required env vars
+# This file is gitignored and contains secrets (DATABASE_URL, APP_PASSWORD, SESSION_SECRET)
+./deploy.sh
+```
+
+The `deploy.sh` script:
+- Builds the Docker image for linux/amd64
+- Pushes to Artifact Registry
+- Deploys to Cloud Run with all required environment variables
+- **IMPORTANT:** Edit this file to fill in your secrets before first use
+
+**Manual Deploy Commands (if needed):**
 ```bash
 # IMPORTANT: Always source ~/.zshrc first to get gcloud in PATH
 source ~/.zshrc
@@ -106,19 +119,16 @@ docker build --platform linux/amd64 -t us-central1-docker.pkg.dev/project-f6dcbf
 # Push to Artifact Registry
 docker push us-central1-docker.pkg.dev/project-f6dcbf1a-1498-4bd2-a78/paper-tracker/paper-tracker:latest
 
-# Deploy to Cloud Run (env vars persist from previous revision)
+# Deploy to Cloud Run WITH env vars (required for auth to work!)
 gcloud run deploy paper-tracker \
   --image=us-central1-docker.pkg.dev/project-f6dcbf1a-1498-4bd2-a78/paper-tracker/paper-tracker:latest \
   --region=us-central1 \
-  --allow-unauthenticated
+  --allow-unauthenticated \
+  --set-env-vars="DATABASE_URL=<url>,APP_PASSWORD=<pass>,SESSION_SECRET=<secret>"
 
-# IMPORTANT: Verify env vars after deploy
+# Verify env vars after deploy
 gcloud run services describe paper-tracker --region=us-central1 \
   --format="yaml(spec.template.spec.containers[0].env)"
-
-# If DATABASE_URL is missing, set it (get values from Turso):
-gcloud run services update paper-tracker --region=us-central1 \
-  --set-env-vars="DATABASE_URL=libsql://paper-tracker-bikestra.aws-us-west-2.turso.io?authToken=<token>"
 ```
 
 **Troubleshooting:**

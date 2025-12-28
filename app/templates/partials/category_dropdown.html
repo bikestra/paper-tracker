@@ -1,0 +1,44 @@
+<!-- Category dropdown with inline creation -->
+<!-- Uses variables: categories, dropdown_selected_id (or selected_id from HTMX response), dropdown_context (or context) -->
+<div id="category-dropdown-container" class="relative">
+    <div class="flex gap-2">
+        <select id="category_id" name="category_id"
+                class="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            <option value="">-- None --</option>
+            {% for cat in categories %}
+            <option value="{{ cat.id }}" {% if (selected_id is defined and selected_id == cat.id) or (dropdown_selected_id is defined and dropdown_selected_id == cat.id) %}selected{% endif %}>{{ cat.name }}</option>
+            {% endfor %}
+        </select>
+        <button type="button"
+                onclick="this.nextElementSibling.classList.toggle('hidden')"
+                class="px-3 py-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors"
+                title="Create new category">
+            + New
+        </button>
+        <!-- Inline creation form (hidden by default) -->
+        <div class="hidden absolute right-0 top-full mt-1 bg-white border rounded-lg shadow-lg p-3 z-20 w-64">
+            <form hx-post="/partials/category-dropdown"
+                  hx-target="#category-dropdown-container"
+                  hx-swap="outerHTML"
+                  class="space-y-2">
+                <input type="hidden" name="context" value="{{ context if context is defined else (dropdown_context if dropdown_context is defined else 'paper') }}">
+                <input type="text"
+                       name="name"
+                       placeholder="Category name"
+                       required
+                       class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm">
+                <div class="flex justify-end gap-2">
+                    <button type="button"
+                            onclick="this.closest('div.hidden, div:not(.hidden)').classList.add('hidden')"
+                            class="px-3 py-1 text-sm text-gray-600 hover:text-gray-800">
+                        Cancel
+                    </button>
+                    <button type="submit"
+                            class="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
+                        Create
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

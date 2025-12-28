@@ -1,0 +1,82 @@
+<!-- Discovery sources for a paper -->
+<div class="space-y-2">
+    <div class="flex items-center justify-between">
+        <h4 class="text-sm font-medium text-gray-700">Discovery Sources</h4>
+        <button onclick="this.nextElementSibling.classList.toggle('hidden')"
+                class="text-xs text-blue-600 hover:text-blue-800">
+            + Add source
+        </button>
+    </div>
+
+    <!-- Add source form (hidden by default) -->
+    <div class="hidden bg-white border rounded p-3 mb-2">
+        <form hx-post="/papers/{{ paper_id }}/sources"
+              hx-target="#sources-{{ paper_id }}"
+              hx-swap="innerHTML">
+            <div class="mb-2">
+                <label class="text-xs text-gray-600 block mb-1">Source type</label>
+                <select name="source_type" class="w-full px-2 py-1 text-sm border rounded"
+                        onchange="this.form.querySelector('.arxiv-field').classList.toggle('hidden', this.value !== 'PAPER'); this.form.querySelector('.text-field').classList.toggle('hidden', this.value !== 'TEXT')">
+                    <option value="PAPER">Paper (arXiv ID)</option>
+                    <option value="TEXT">Text description</option>
+                </select>
+            </div>
+            <div class="mb-2 arxiv-field">
+                <label class="text-xs text-gray-600 block mb-1">Source arXiv ID</label>
+                <input type="text" name="source_arxiv_id" placeholder="e.g., 2301.12345"
+                       class="w-full px-2 py-1 text-sm border rounded">
+            </div>
+            <div class="mb-2 text-field hidden">
+                <label class="text-xs text-gray-600 block mb-1">Description</label>
+                <input type="text" name="source_text" placeholder="e.g., Recommended by colleague"
+                       class="w-full px-2 py-1 text-sm border rounded">
+            </div>
+            <button type="submit"
+                    class="w-full px-2 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
+                Add Source
+            </button>
+        </form>
+    </div>
+
+    <!-- Sources list -->
+    {% if sources %}
+    <ul class="space-y-1">
+        {% for source in sources %}
+        <li class="flex items-center justify-between bg-white border rounded px-3 py-2">
+            <div class="flex items-center gap-2 text-sm">
+                {% if source.source_type.value == 'PAPER' %}
+                <span class="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded text-xs">Paper</span>
+                {% if source.source_paper_id %}
+                <a href="/papers/{{ source.source_paper_id }}/edit" class="text-blue-600 hover:underline">
+                    arXiv:{{ source.source_arxiv_id }}
+                </a>
+                <span class="text-green-600 text-xs">(in collection)</span>
+                {% else %}
+                <a href="https://arxiv.org/abs/{{ source.source_arxiv_id }}" target="_blank" rel="noopener" class="text-blue-600 hover:underline">
+                    arXiv:{{ source.source_arxiv_id }}
+                    <svg class="inline w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                    </svg>
+                </a>
+                {% endif %}
+                {% else %}
+                <span class="bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded text-xs">Text</span>
+                <span class="text-gray-600">{{ source.source_text }}</span>
+                {% endif %}
+            </div>
+            <button hx-delete="/papers/{{ paper_id }}/sources/{{ source.id }}"
+                    hx-target="#sources-{{ paper_id }}"
+                    hx-swap="innerHTML"
+                    hx-confirm="Remove this source?"
+                    class="text-gray-400 hover:text-red-600 p-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-sm text-gray-500 italic">No sources recorded yet.</p>
+    {% endif %}
+</div>
