@@ -10,3 +10,5 @@ arxiv==2.1.3
 pytest==8.2.2
 httpx==0.27.0
 sqlalchemy-libsql==0.2.0
+pg8000==1.31.2
+cloud-sql-python-connector[pg8000]==1.12.1

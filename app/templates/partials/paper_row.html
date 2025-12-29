@@ -57,11 +57,17 @@
                             </button>
                             <div class="hidden absolute right-0 top-full mt-1 bg-white border rounded-lg shadow-lg p-3 z-20" style="width: min(320px, calc(100vw - 2rem));">
                                 <form hx-post="/papers/{{ paper.id }}/effort" hx-target="previous .effort-total" hx-swap="outerHTML"
-                                      hx-on::after-request="this.reset(); this.closest('.relative').querySelector('button').nextElementSibling.classList.add('hidden')">
+                                      hx-on::after-request="if (event.detail.xhr.getResponseHeader('HX-Refresh')) { location.reload(); } else { this.reset(); this.closest('.relative').querySelector('button').nextElementSibling.classList.add('hidden'); }">
                                     <div class="flex gap-2 mb-2">
                                         <input type="number" name="points" value="1" min="1" max="100" class="w-16 px-2 py-1 text-sm border rounded" placeholder="Pts">
                                         <input type="text" name="note" class="flex-1 px-2 py-1 text-sm border rounded" placeholder="Note">
                                     </div>
+                                    {% if paper.status.value != 'READ' %}
+                                    <label class="flex items-center gap-2 mb-2 text-xs text-gray-600 cursor-pointer">
+                                        <input type="checkbox" name="mark_as_read" value="1" class="rounded border-gray-300 text-green-600 focus:ring-green-500">
+                                        Mark as Read
+                                    </label>
+                                    {% endif %}
                                     <div class="flex justify-end gap-2">
                                         <button type="button" onclick="this.closest('.relative').querySelector('button').nextElementSibling.classList.add('hidden')"
                                                 class="px-2 py-1 text-xs text-gray-600">Cancel</button>

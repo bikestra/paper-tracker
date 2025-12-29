@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Annotated, Optional
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -637,6 +637,7 @@ def log_paper_effort(
     paper_id: int,
     points: Annotated[int, Form()] = 1,
     note: Annotated[str, Form()] = "",
+    mark_as_read: Annotated[str | None, Form()] = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -651,6 +652,21 @@ def log_paper_effort(
     if effort_log is None:
         raise HTTPException(status_code=404, detail="Paper not found")
 
+    # Mark paper as read if requested
+    if mark_as_read:
+        crud.update_paper(
+            db,
+            paper_id=paper_id,
+            data=schemas.PaperUpdate(status=models.PaperStatus.READ),
+            user_id=current_user.id,
+        )
+        # Tell HTMX to refresh the page since the paper moved to a different status
+        total = crud.get_paper_effort_total(db, paper_id, user_id=current_user.id)
+        return Response(
+            content=f'<span class="effort-total">{total}</span>',
+            headers={"HX-Refresh": "true"},
+        )
+
     # Return updated effort total
     total = crud.get_paper_effort_total(db, paper_id, user_id=current_user.id)
     return f'<span class="effort-total">{total}</span>'
@@ -662,6 +678,7 @@ def log_textbook_effort(
     textbook_id: int,
     points: Annotated[int, Form()] = 1,
     note: Annotated[str, Form()] = "",
+    mark_as_read: Annotated[str | None, Form()] = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -675,6 +692,21 @@ def log_textbook_effort(
     )
     if effort_log is None:
         raise HTTPException(status_code=404, detail="Textbook not found")
+
+    # Mark textbook as read if requested
+    if mark_as_read:
+        crud.update_textbook(
+            db,
+            textbook_id=textbook_id,
+            data=schemas.TextbookUpdate(status=models.TextbookStatus.READ),
+            user_id=current_user.id,
+        )
+        # Tell HTMX to refresh the page since the textbook moved to a different status
+        total = crud.get_textbook_effort_total(db, textbook_id, user_id=current_user.id)
+        return Response(
+            content=f'<span class="effort-total">{total}</span>',
+            headers={"HX-Refresh": "true"},
+        )
 
     # Return updated effort total
     total = crud.get_textbook_effort_total(db, textbook_id, user_id=current_user.id)

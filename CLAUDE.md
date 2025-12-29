@@ -76,23 +76,40 @@ FastAPI web application for tracking academic paper reading lists, using SQLAlch
 - Repository: `us-central1-docker.pkg.dev/project-f6dcbf1a-1498-4bd2-a78/paper-tracker`
 - Image: `paper-tracker:latest`
 
-**Database:** Turso (libsql) - connection string in `DATABASE_URL` env var
+**Database:** Cloud SQL (PostgreSQL 15)
+- Instance: `paper-tracker-db`
+- Connection: `project-f6dcbf1a-1498-4bd2-a78:us-central1:paper-tracker-db`
+
+**IAM Requirements:**
+The Cloud Run service account needs `roles/cloudsql.client` to connect to Cloud SQL:
+```bash
+PROJECT_NUMBER=$(gcloud projects describe project-f6dcbf1a-1498-4bd2-a78 --format='value(projectNumber)')
+gcloud projects add-iam-policy-binding project-f6dcbf1a-1498-4bd2-a78 \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role="roles/cloudsql.client"
+```
 
 **Environment Variables (Cloud Run) - REQUIRED:**
-- `DATABASE_URL` - Turso connection string (app will fail to start without this in production)
+- `CLOUD_SQL_CONNECTION` - Cloud SQL instance connection name
+- `DB_USER` - Database user (default: postgres)
+- `DB_PASS` - Database password
+- `DB_NAME` - Database name (default: postgres)
 - `APP_PASSWORD` - Login password
 - `SESSION_SECRET` - Cookie signing key (must be stable for sessions to persist)
 
-**Turso Database:**
+**Cloud SQL Commands:**
 ```bash
-# Get database URL
-~/.turso/turso db show paper-tracker --url
+# List instances
+gcloud sql instances list
 
-# Create auth token
-~/.turso/turso db tokens create paper-tracker
+# Set user password
+gcloud sql users set-password postgres --instance=paper-tracker-db --password="<new-password>"
 
-# Full DATABASE_URL format:
-# libsql://<db-name>-<username>.aws-us-west-2.turso.io?authToken=<token>
+# Connect via Cloud SQL Proxy (for local development)
+cloud-sql-proxy project-f6dcbf1a-1498-4bd2-a78:us-central1:paper-tracker-db
+
+# Run migrations against Cloud SQL (with proxy running on port 5432)
+DATABASE_URL="postgresql+pg8000://postgres:<password>@127.0.0.1:5432/postgres" alembic upgrade head
 ```
 
 **Deploy Script (PREFERRED):**
@@ -103,9 +120,10 @@ FastAPI web application for tracking academic paper reading lists, using SQLAlch
 ```
 
 The `deploy.sh` script:
+- Ensures Cloud SQL Client IAM role is granted to the Cloud Run service account
 - Builds the Docker image for linux/amd64
 - Pushes to Artifact Registry
-- Deploys to Cloud Run with all required environment variables
+- Deploys to Cloud Run with Cloud SQL connection and all required environment variables
 - **IMPORTANT:** Edit this file to fill in your secrets before first use
 
 **Manual Deploy Commands (if needed):**
@@ -113,18 +131,25 @@ The `deploy.sh` script:
 # IMPORTANT: Always source ~/.zshrc first to get gcloud in PATH
 source ~/.zshrc
 
+# Ensure IAM permissions (required for Cloud SQL access)
+PROJECT_NUMBER=$(gcloud projects describe project-f6dcbf1a-1498-4bd2-a78 --format='value(projectNumber)')
+gcloud projects add-iam-policy-binding project-f6dcbf1a-1498-4bd2-a78 \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role="roles/cloudsql.client"
+
 # Build for linux/amd64 (required for Cloud Run)
 docker build --platform linux/amd64 -t us-central1-docker.pkg.dev/project-f6dcbf1a-1498-4bd2-a78/paper-tracker/paper-tracker:latest .
 
 # Push to Artifact Registry
 docker push us-central1-docker.pkg.dev/project-f6dcbf1a-1498-4bd2-a78/paper-tracker/paper-tracker:latest
 
-# Deploy to Cloud Run WITH env vars (required for auth to work!)
+# Deploy to Cloud Run WITH Cloud SQL and env vars
 gcloud run deploy paper-tracker \
   --image=us-central1-docker.pkg.dev/project-f6dcbf1a-1498-4bd2-a78/paper-tracker/paper-tracker:latest \
   --region=us-central1 \
   --allow-unauthenticated \
-  --set-env-vars="DATABASE_URL=<url>,APP_PASSWORD=<pass>,SESSION_SECRET=<secret>"
+  --add-cloudsql-instances=project-f6dcbf1a-1498-4bd2-a78:us-central1:paper-tracker-db \
+  --set-env-vars="CLOUD_SQL_CONNECTION=project-f6dcbf1a-1498-4bd2-a78:us-central1:paper-tracker-db,DB_USER=postgres,DB_PASS=<pass>,DB_NAME=postgres,APP_PASSWORD=<pass>,SESSION_SECRET=<secret>"
 
 # Verify env vars after deploy
 gcloud run services describe paper-tracker --region=us-central1 \
@@ -132,6 +157,7 @@ gcloud run services describe paper-tracker --region=us-central1 \
 ```
 
 **Troubleshooting:**
-- If papers don't show: Check DATABASE_URL is set in Cloud Run env vars
+- If deployment fails with "Cloud SQL Client role" error: Run the IAM binding command above
+- If papers don't show: Check CLOUD_SQL_CONNECTION and DB_* vars are set in Cloud Run env vars
 - If login doesn't persist: Check SESSION_SECRET is set and stable
 - View logs: `gcloud run services logs read paper-tracker --region=us-central1 --limit=50`

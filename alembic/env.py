@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from alembic import context
+from sqlalchemy import String
 
 from app.db import Base, engine
 import app.models  # noqa: F401
@@ -36,6 +37,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        version_table_pk=False,
     )
 
     with context.begin_transaction():
@@ -45,9 +47,13 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
 
-    # Use the engine from app.db which has proper connect_args for libsql
+    # Use the engine from app.db which has proper connect_args
     with engine.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            version_table_pk=False,
+        )
 
         with context.begin_transaction():
             context.run_migrations()
