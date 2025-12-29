@@ -502,7 +502,7 @@ def fetch_arxiv(
         )
 
 
-@app.post("/papers")
+@app.post("/papers", response_class=HTMLResponse)
 def create_paper(
     request: Request,
     title: Annotated[str, Form()],
@@ -528,43 +528,74 @@ def create_paper(
     """Create a new paper."""
     from datetime import datetime
 
-    # Parse authors
-    author_list = [a.strip() for a in authors.split(",") if a.strip()]
+    is_htmx = request.headers.get("HX-Request") == "true"
 
-    # Parse category_id
-    cat_id = int(category_id) if category_id and category_id.strip() else None
+    try:
+        # Validate title
+        if not title or not title.strip():
+            error_msg = "Title is required"
+            if is_htmx:
+                return HTMLResponse(
+                    content=f'<div class="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">{error_msg}</div>',
+                    status_code=400,
+                )
+            raise HTTPException(status_code=400, detail=error_msg)
 
-    # Parse datetime fields
-    def parse_dt(s: str) -> datetime | None:
-        if not s:
-            return None
-        try:
-            return datetime.fromisoformat(s.replace("Z", "+00:00"))
-        except ValueError:
-            return None
+        # Parse authors
+        author_list = [a.strip() for a in authors.split(",") if a.strip()]
 
-    data = schemas.PaperCreate(
-        title=title,
-        abstract=abstract or None,
-        url=url or None,
-        pdf_url=pdf_url or None,
-        status=models.PaperStatus(status),
-        category_id=cat_id,
-        notes=notes or None,
-        venue_year=venue_year or None,
-        source=models.PaperSource(source) if source else models.PaperSource.MANUAL,
-        authors=author_list,
-        arxiv_id=arxiv_id or None,
-        arxiv_version=arxiv_version or None,
-        arxiv_primary_category=arxiv_primary_category or None,
-        arxiv_published_at=parse_dt(arxiv_published_at),
-        arxiv_updated_at=parse_dt(arxiv_updated_at),
-        doi=doi or None,
-        journal_ref=journal_ref or None,
-    )
+        # Parse category_id
+        cat_id = int(category_id) if category_id and category_id.strip() else None
 
-    crud.create_paper(db, data, user_id=current_user.id)
-    return RedirectResponse(url=f"/?status={status}", status_code=303)
+        # Parse datetime fields
+        def parse_dt(s: str) -> datetime | None:
+            if not s:
+                return None
+            try:
+                return datetime.fromisoformat(s.replace("Z", "+00:00"))
+            except ValueError:
+                return None
+
+        data = schemas.PaperCreate(
+            title=title.strip(),
+            abstract=abstract or None,
+            url=url or None,
+            pdf_url=pdf_url or None,
+            status=models.PaperStatus(status),
+            category_id=cat_id,
+            notes=notes or None,
+            venue_year=venue_year or None,
+            source=models.PaperSource(source) if source else models.PaperSource.MANUAL,
+            authors=author_list,
+            arxiv_id=arxiv_id or None,
+            arxiv_version=arxiv_version or None,
+            arxiv_primary_category=arxiv_primary_category or None,
+            arxiv_published_at=parse_dt(arxiv_published_at),
+            arxiv_updated_at=parse_dt(arxiv_updated_at),
+            doi=doi or None,
+            journal_ref=journal_ref or None,
+        )
+
+        crud.create_paper(db, data, user_id=current_user.id)
+
+        # For HTMX requests, use HX-Redirect header
+        if is_htmx:
+            response = HTMLResponse(content="")
+            response.headers["HX-Redirect"] = f"/?status={status}"
+            return response
+
+        return RedirectResponse(url=f"/?status={status}", status_code=303)
+
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"Error creating paper: {error_msg}")
+
+        if is_htmx:
+            return HTMLResponse(
+                content=f'<div class="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">Error: {error_msg}</div>',
+                status_code=500,
+            )
+        raise
 
 
 @app.post("/papers/reorder")
@@ -745,7 +776,7 @@ def delete_paper_source(
     )
 
 
-@app.post("/papers/{paper_id}")
+@app.post("/papers/{paper_id}", response_class=HTMLResponse)
 def update_paper(
     request: Request,
     paper_id: int,
@@ -772,50 +803,87 @@ def update_paper(
     """Update a paper."""
     from datetime import datetime
 
+    is_htmx = request.headers.get("HX-Request") == "true"
     t0 = time.perf_counter()
 
-    # Parse authors
-    author_list = [a.strip() for a in authors.split(",") if a.strip()]
+    try:
+        # Validate title
+        if not title or not title.strip():
+            error_msg = "Title is required"
+            if is_htmx:
+                return HTMLResponse(
+                    content=f'<div class="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">{error_msg}</div>',
+                    status_code=400,
+                )
+            raise HTTPException(status_code=400, detail=error_msg)
 
-    # Parse category_id
-    cat_id = int(category_id) if category_id and category_id.strip() else None
+        # Parse authors
+        author_list = [a.strip() for a in authors.split(",") if a.strip()]
 
-    # Parse datetime fields
-    def parse_dt(s: str) -> datetime | None:
-        if not s:
-            return None
-        try:
-            return datetime.fromisoformat(s.replace("Z", "+00:00"))
-        except ValueError:
-            return None
+        # Parse category_id
+        cat_id = int(category_id) if category_id and category_id.strip() else None
 
-    data = schemas.PaperUpdate(
-        title=title,
-        abstract=abstract or None,
-        url=url or None,
-        pdf_url=pdf_url or None,
-        status=models.PaperStatus(status),
-        category_id=cat_id,
-        notes=notes or None,
-        venue_year=venue_year or None,
-        authors=author_list,
-        arxiv_id=arxiv_id or None,
-        arxiv_version=arxiv_version or None,
-        arxiv_primary_category=arxiv_primary_category or None,
-        arxiv_published_at=parse_dt(arxiv_published_at),
-        arxiv_updated_at=parse_dt(arxiv_updated_at),
-        doi=doi or None,
-        journal_ref=journal_ref or None,
-    )
+        # Parse datetime fields
+        def parse_dt(s: str) -> datetime | None:
+            if not s:
+                return None
+            try:
+                return datetime.fromisoformat(s.replace("Z", "+00:00"))
+            except ValueError:
+                return None
 
-    paper = crud.update_paper(db, paper_id, data, user_id=current_user.id)
-    t1 = time.perf_counter()
-    logger.info(f"  update_paper: {t1-t0:.3f}s")
+        data = schemas.PaperUpdate(
+            title=title.strip(),
+            abstract=abstract or None,
+            url=url or None,
+            pdf_url=pdf_url or None,
+            status=models.PaperStatus(status),
+            category_id=cat_id,
+            notes=notes or None,
+            venue_year=venue_year or None,
+            authors=author_list,
+            arxiv_id=arxiv_id or None,
+            arxiv_version=arxiv_version or None,
+            arxiv_primary_category=arxiv_primary_category or None,
+            arxiv_published_at=parse_dt(arxiv_published_at),
+            arxiv_updated_at=parse_dt(arxiv_updated_at),
+            doi=doi or None,
+            journal_ref=journal_ref or None,
+        )
 
-    if not paper:
-        raise HTTPException(status_code=404, detail="Paper not found")
+        paper = crud.update_paper(db, paper_id, data, user_id=current_user.id)
+        t1 = time.perf_counter()
+        logger.info(f"  update_paper: {t1-t0:.3f}s")
 
-    return RedirectResponse(url=f"/?status={status}", status_code=303)
+        if not paper:
+            error_msg = "Paper not found"
+            if is_htmx:
+                return HTMLResponse(
+                    content=f'<div class="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">{error_msg}</div>',
+                    status_code=404,
+                )
+            raise HTTPException(status_code=404, detail=error_msg)
+
+        # For HTMX requests, use HX-Redirect header
+        if is_htmx:
+            response = HTMLResponse(content="")
+            response.headers["HX-Redirect"] = f"/?status={status}"
+            return response
+
+        return RedirectResponse(url=f"/?status={status}", status_code=303)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"Error updating paper: {error_msg}")
+
+        if is_htmx:
+            return HTMLResponse(
+                content=f'<div class="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">Error: {error_msg}</div>',
+                status_code=500,
+            )
+        raise
 
 
 @app.post("/papers/{paper_id}/delete", response_class=HTMLResponse)

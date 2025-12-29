@@ -30,14 +30,24 @@
     </div>
 
     <!-- Paper Form -->
-    <form method="post" action="/papers" class="bg-white rounded-lg shadow-sm border p-6">
+    <form method="post" action="/papers" class="bg-white rounded-lg shadow-sm border p-6"
+          hx-post="/papers" hx-target="#form-error" hx-swap="innerHTML">
+        <!-- Error display area -->
+        <div id="form-error"></div>
+
         <div id="paper-form-fields">
             {% include "partials/paper_form.html" %}
         </div>
 
         <div class="flex justify-end gap-3 mt-6 pt-6 border-t">
             <a href="/" class="px-4 py-2 text-gray-700 hover:text-gray-900">Cancel</a>
-            <button type="submit" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+            <button type="submit" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2">
+                <span class="htmx-indicator">
+                    <svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                    </svg>
+                </span>
                 Save Paper
             </button>
         </div>

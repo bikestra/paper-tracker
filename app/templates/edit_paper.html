@@ -25,7 +25,11 @@
         {% endif %}
     </div>
 
-    <form method="post" action="/papers/{{ paper.id }}" class="bg-white rounded-lg shadow-sm border p-6">
+    <form method="post" action="/papers/{{ paper.id }}" class="bg-white rounded-lg shadow-sm border p-6"
+          hx-post="/papers/{{ paper.id }}" hx-target="#form-error" hx-swap="innerHTML">
+        <!-- Error display area -->
+        <div id="form-error"></div>
+
         <div id="paper-form-fields">
             {% include "partials/paper_form.html" %}
         </div>
