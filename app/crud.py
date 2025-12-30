@@ -289,13 +289,12 @@ def create_paper(
     db: Session, data: schemas.PaperCreate, user_id: int = DEFAULT_USER_ID
 ) -> models.Paper:
     """Create a new paper with authors."""
-    # Get min order_index for this status/category combination (new papers go to top)
+    # Get min order_index across ALL papers with this status (ignoring category)
+    # This ensures new papers always appear at the top when viewing all papers
     stmt = select(func.min(models.Paper.order_index)).where(
         models.Paper.user_id == user_id,
         models.Paper.status == data.status,
     )
-    if data.category_id:
-        stmt = stmt.where(models.Paper.category_id == data.category_id)
     min_order = db.scalar(stmt)
     new_order = (min_order - 10) if min_order is not None else 0
 
@@ -802,13 +801,12 @@ def create_textbook(
     """Create a new textbook."""
     import datetime as dt
 
-    # Get min order_index for this status/category (new textbooks go to top)
+    # Get min order_index across ALL textbooks with this status (ignoring category)
+    # This ensures new textbooks always appear at the top when viewing all textbooks
     stmt = select(func.min(models.Textbook.order_index)).where(
         models.Textbook.user_id == user_id,
         models.Textbook.status == data.status,
     )
-    if data.category_id:
-        stmt = stmt.where(models.Textbook.category_id == data.category_id)
     min_order = db.scalar(stmt)
     new_order = (min_order - 10) if min_order is not None else 0
 
