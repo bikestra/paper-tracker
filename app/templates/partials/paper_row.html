@@ -43,6 +43,11 @@
                     {% if paper.source.value == 'ARXIV' and paper.pdf_url %}
                     <a href="{{ paper.pdf_url }}" target="_blank" rel="noopener" class="text-red-600 hover:text-red-800 px-1">PDF</a>
                     {% endif %}
+                    {% if paper.read_at %}
+                    <span class="text-gray-500" title="Read on {{ paper.read_at.strftime('%Y-%m-%d %H:%M') }}">
+                        📖 {{ paper.read_at.strftime('%b %d, %Y') }}
+                    </span>
+                    {% endif %}
 
                     <!-- Actions (inline, right-aligned) -->
                     <div class="flex items-center ml-auto text-gray-400">

@@ -248,8 +248,16 @@ def get_papers(
         )
     )
 
-    # Apply sorting
-    if sort_by == "likes":
+    if status:
+        stmt = stmt.where(models.Paper.status == status)
+
+    # Apply sorting - READ status always sorts by read_at date
+    if status == models.PaperStatus.READ:
+        stmt = stmt.order_by(
+            models.Paper.read_at.desc().nulls_last(),
+            models.Paper.created_at.desc(),
+        )
+    elif sort_by == "likes":
         stmt = stmt.order_by(models.Paper.likes.desc(), models.Paper.created_at.desc())
     elif sort_by == "added":
         stmt = stmt.order_by(models.Paper.created_at.desc())
@@ -261,9 +269,6 @@ def get_papers(
         )
     else:  # "manual" or default
         stmt = stmt.order_by(models.Paper.order_index)
-
-    if status:
-        stmt = stmt.where(models.Paper.status == status)
     if category_id is not None:
         stmt = stmt.where(models.Paper.category_id == category_id)
 
@@ -322,9 +327,13 @@ def create_paper(
     db.add(paper)
     db.flush()
 
-    # Add authors
+    # Add authors (deduplicate to avoid unique constraint violation)
+    seen_author_ids: set[int] = set()
     for position, author_name in enumerate(data.authors):
         author = get_or_create_author(db, author_name, user_id)
+        if author.id in seen_author_ids:
+            continue  # Skip duplicate authors
+        seen_author_ids.add(author.id)
         paper_author = models.PaperAuthor(
             paper_id=paper.id,
             author_id=author.id,
@@ -371,9 +380,13 @@ def update_paper(
             db.delete(link)
         db.flush()
 
-        # Add new authors
+        # Add new authors (deduplicate to avoid unique constraint violation)
+        seen_author_ids: set[int] = set()
         for position, author_name in enumerate(data.authors):
             author = get_or_create_author(db, author_name, user_id)
+            if author.id in seen_author_ids:
+                continue  # Skip duplicate authors
+            seen_author_ids.add(author.id)
             paper_author = models.PaperAuthor(
                 paper_id=paper.id,
                 author_id=author.id,
@@ -760,8 +773,18 @@ def get_textbooks(
         .options(joinedload(models.Textbook.category))
     )
 
-    # Apply sorting
-    if sort_by == "likes":
+    if status:
+        stmt = stmt.where(models.Textbook.status == status)
+    if category_id is not None:
+        stmt = stmt.where(models.Textbook.category_id == category_id)
+
+    # Apply sorting - READ status always sorts by read_at date
+    if status == models.TextbookStatus.READ:
+        stmt = stmt.order_by(
+            models.Textbook.read_at.desc().nulls_last(),
+            models.Textbook.created_at.desc(),
+        )
+    elif sort_by == "likes":
         stmt = stmt.order_by(
             models.Textbook.likes.desc(), models.Textbook.created_at.desc()
         )
@@ -774,11 +797,6 @@ def get_textbooks(
         )
     else:  # "manual" or default
         stmt = stmt.order_by(models.Textbook.order_index)
-
-    if status:
-        stmt = stmt.where(models.Textbook.status == status)
-    if category_id is not None:
-        stmt = stmt.where(models.Textbook.category_id == category_id)
 
     return db.scalars(stmt).unique().all()
 

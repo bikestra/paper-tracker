@@ -226,8 +226,8 @@ def home(
     # Get source counts for all papers
     source_counts = crud.get_all_papers_source_counts(db, user_id=user_id)
 
-    # Reordering only allowed in manual sort mode
-    sortable = sort_by == "manual"
+    # Reordering only allowed in manual sort mode, not for READ (sorted by read_at)
+    sortable = sort_by == "manual" and status != models.PaperStatus.READ
 
     return templates.TemplateResponse(
         "index.html",
@@ -414,7 +414,8 @@ def papers_partial(
         category_id=category_id,
         sort_by=sort_by,
     )
-    sortable = sort_by == "manual"
+    # Reordering not allowed for READ (sorted by read_at)
+    sortable = sort_by == "manual" and status != models.PaperStatus.READ
 
     # Get effort totals and source counts for all papers
     effort_totals = crud.get_all_papers_effort_totals(db, user_id=current_user.id)
@@ -1123,7 +1124,8 @@ def textbooks_page(
     # Get effort totals for all textbooks
     effort_totals = crud.get_all_textbooks_effort_totals(db, user_id=user_id)
 
-    sortable = sort_by == "manual"
+    # Reordering not allowed for READ (sorted by read_at)
+    sortable = sort_by == "manual" and status != models.TextbookStatus.READ
 
     return templates.TemplateResponse(
         "textbooks.html",
@@ -1411,7 +1413,8 @@ def textbooks_partial(
         category_id=category_id,
         sort_by=sort_by,
     )
-    sortable = sort_by == "manual"
+    # Reordering not allowed for READ (sorted by read_at)
+    sortable = sort_by == "manual" and status != models.TextbookStatus.READ
 
     # Get effort totals for all textbooks
     effort_totals = crud.get_all_textbooks_effort_totals(db, user_id=current_user.id)
