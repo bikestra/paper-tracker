@@ -16,6 +16,18 @@ from .arxiv import normalize_author_name
 DEFAULT_USER_ID = 1
 
 
+def is_valid_author_name(name: str) -> bool:
+    """Check if author name is valid (not just punctuation/whitespace)."""
+    # Strip whitespace and check if anything meaningful remains
+    stripped = name.strip()
+    if not stripped:
+        return False
+    # Check if it's just punctuation (like ':')
+    if all(c in ".:;,!?-_()[]{}\"'" for c in stripped):
+        return False
+    return True
+
+
 # --- User CRUD ---
 
 
@@ -116,7 +128,7 @@ def get_authors(db: Session, user_id: int = DEFAULT_USER_ID) -> list[dict]:
         .outerjoin(models.PaperAuthor)
         .where(models.Author.user_id == user_id)
         .group_by(models.Author.id)
-        .order_by(models.Author.name)
+        .order_by(func.count(models.PaperAuthor.paper_id).desc(), models.Author.name)
     )
     results = db.execute(stmt).all()
     return [
@@ -327,9 +339,11 @@ def create_paper(
     db.add(paper)
     db.flush()
 
-    # Add authors (deduplicate to avoid unique constraint violation)
+    # Add authors (deduplicate and skip invalid names)
     seen_author_ids: set[int] = set()
     for position, author_name in enumerate(data.authors):
+        if not is_valid_author_name(author_name):
+            continue  # Skip invalid author names like ':'
         author = get_or_create_author(db, author_name, user_id)
         if author.id in seen_author_ids:
             continue  # Skip duplicate authors
@@ -380,9 +394,11 @@ def update_paper(
             db.delete(link)
         db.flush()
 
-        # Add new authors (deduplicate to avoid unique constraint violation)
+        # Add new authors (deduplicate and skip invalid names)
         seen_author_ids: set[int] = set()
         for position, author_name in enumerate(data.authors):
+            if not is_valid_author_name(author_name):
+                continue  # Skip invalid author names like ':'
             author = get_or_create_author(db, author_name, user_id)
             if author.id in seen_author_ids:
                 continue  # Skip duplicate authors
@@ -498,10 +514,16 @@ def refresh_paper_from_arxiv(
         db.delete(link)
     db.flush()
 
+    seen_author_ids: set[int] = set()
     for position, author_info in enumerate(metadata.authors):
+        if not is_valid_author_name(author_info.name):
+            continue  # Skip invalid author names
         author = get_or_create_author(
             db, author_info.name, user_id, arxiv_id=author_info.arxiv_id
         )
+        if author.id in seen_author_ids:
+            continue  # Skip duplicate authors
+        seen_author_ids.add(author.id)
         paper_author = models.PaperAuthor(
             paper_id=paper.id,
             author_id=author.id,

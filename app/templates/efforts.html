@@ -34,7 +34,7 @@
                 {% endif %}
             </div>
             <div class="text-sm text-gray-500 flex-shrink-0">
-                {{ log.created_at.strftime('%b %d, %Y %H:%M') }}
+                {{ (log.created_at|pacific).strftime('%b %d, %Y %H:%M') }}
             </div>
         </div>
         <div class="mt-2 ml-10">

@@ -49,6 +49,25 @@ async def timing_middleware(request: Request, call_next):
 # Templates
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
+# Add Pacific timezone filter for dates
+from zoneinfo import ZoneInfo
+import datetime as dt
+
+PACIFIC_TZ = ZoneInfo("America/Los_Angeles")
+
+
+def to_pacific(value: dt.datetime | None) -> dt.datetime | None:
+    """Convert UTC datetime to Pacific time."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        # Assume UTC if no timezone
+        value = value.replace(tzinfo=dt.timezone.utc)
+    return value.astimezone(PACIFIC_TZ)
+
+
+templates.env.filters["pacific"] = to_pacific
+
 
 @app.on_event("startup")
 def on_startup() -> None:

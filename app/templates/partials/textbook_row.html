@@ -45,8 +45,8 @@
                     <span class="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{{ textbook.category.name }}</span>
                     {% endif %}
                     {% if textbook.read_at %}
-                    <span class="text-gray-500" title="Read on {{ textbook.read_at.strftime('%Y-%m-%d %H:%M') }}">
-                        📖 {{ textbook.read_at.strftime('%b %d, %Y') }}
+                    <span class="text-gray-500" title="Read on {{ (textbook.read_at|pacific).strftime('%Y-%m-%d %H:%M') }}">
+                        📖 {{ (textbook.read_at|pacific).strftime('%b %d, %Y') }}
                     </span>
                     {% endif %}
 
