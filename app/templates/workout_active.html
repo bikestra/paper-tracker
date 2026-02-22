@@ -35,16 +35,20 @@
 
 <!-- GPT Chat Panel -->
 <div id="gpt-chat" class="hidden mb-4 bg-purple-50 border border-purple-200 rounded-lg p-4">
-    <div id="gpt-messages" class="max-h-48 overflow-y-auto mb-3 space-y-2 text-sm">
+    <div id="gpt-messages" class="max-h-64 overflow-y-auto mb-3 space-y-3 text-sm">
         {% for conv in conversations %}
-        <div class="bg-white p-2 rounded">You: {{ conv.user_message }}</div>
-        <div class="bg-purple-100 p-2 rounded">Coach: {{ conv.gpt_response[:500] }}{% if conv.gpt_response|length > 500 %}...{% endif %}</div>
+        <div class="flex justify-end">
+            <div class="bg-purple-600 text-white rounded-lg px-3 py-2 max-w-[80%]">{{ conv.user_message }}</div>
+        </div>
+        <div class="flex justify-start">
+            <div class="bg-white rounded-lg px-3 py-2 max-w-[85%] prose prose-sm markdown-content">{{ conv.gpt_response }}</div>
+        </div>
         {% endfor %}
     </div>
     <div class="flex gap-2">
         <input type="text" id="gpt-input" placeholder="Ask about form, weight adjustments..."
                class="flex-1 px-3 py-2 border rounded-lg text-sm">
-        <button onclick="sendGPTMessage()" class="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700">
+        <button onclick="sendGPTMessage()" id="chat-send-btn" class="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 disabled:opacity-50">
             Send
         </button>
     </div>
@@ -74,7 +78,32 @@
 {% endblock %}
 
 {% block scripts %}
+<!-- Marked.js for markdown rendering -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+/* Prose styling for markdown content */
+.prose h1, .prose h2, .prose h3 { font-weight: 600; margin-top: 0.75em; margin-bottom: 0.5em; }
+.prose h1 { font-size: 1.125rem; }
+.prose h2 { font-size: 1rem; }
+.prose h3 { font-size: 0.875rem; }
+.prose p { margin-bottom: 0.5em; }
+.prose ul, .prose ol { margin-left: 1.25em; margin-bottom: 0.5em; }
+.prose li { margin-bottom: 0.125em; }
+.prose code { background: #f3f4f6; padding: 0.125em 0.25em; border-radius: 0.25em; font-size: 0.8em; }
+.prose pre { background: #1f2937; color: #f9fafb; padding: 0.5em; border-radius: 0.375em; overflow-x: auto; margin-bottom: 0.5em; font-size: 0.8em; }
+.prose pre code { background: transparent; padding: 0; }
+.prose strong { font-weight: 600; }
+</style>
 <script>
+// Configure marked
+marked.setOptions({ breaks: true, gfm: true });
+
+// Parse existing markdown content on page load
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.markdown-content').forEach(el => {
+        el.innerHTML = marked.parse(el.textContent);
+    });
+});
 // Tap to complete (quick complete with target values)
 function quickComplete(setId, targetWeight, targetReps) {
     const formData = new FormData();
@@ -141,36 +170,88 @@ function saveSetEdit() {
       });
 }
 
-// GPT Chat
+// GPT Chat with streaming
+let isChatting = false;
+
 async function sendGPTMessage() {
+    if (isChatting) return;
+
     const input = document.getElementById('gpt-input');
     const message = input.value.trim();
     if (!message) return;
 
+    isChatting = true;
+    document.getElementById('chat-send-btn').disabled = true;
+
     const messagesDiv = document.getElementById('gpt-messages');
-    messagesDiv.innerHTML += `<div class="bg-white p-2 rounded">You: ${message}</div>`;
+
+    // Add user message
+    const userMsg = document.createElement('div');
+    userMsg.className = 'flex justify-end';
+    userMsg.innerHTML = `<div class="bg-purple-600 text-white rounded-lg px-3 py-2 max-w-[80%]">${escapeHtml(message)}</div>`;
+    messagesDiv.appendChild(userMsg);
     input.value = '';
 
-    // Scroll to bottom
+    // Add assistant message placeholder
+    const assistantMsg = document.createElement('div');
+    assistantMsg.className = 'flex justify-start';
+    assistantMsg.innerHTML = `
+        <div class="bg-white rounded-lg px-3 py-2 max-w-[85%] w-full">
+            <div class="prose prose-sm" id="chat-response">
+                <span class="text-gray-400">Thinking...</span>
+            </div>
+        </div>
+    `;
+    messagesDiv.appendChild(assistantMsg);
     messagesDiv.scrollTop = messagesDiv.scrollHeight;
 
-    try {
-        const response = await fetch('/api/workouts/{{ workout.id }}/chat', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({message: message, workout_id: {{ workout.id }}})
-        });
-        const data = await response.json();
+    const responseDiv = document.getElementById('chat-response');
+    let fullResponse = '';
 
-        if (data.error) {
-            messagesDiv.innerHTML += `<div class="bg-red-100 p-2 rounded">Error: ${data.error}</div>`;
-        } else {
-            messagesDiv.innerHTML += `<div class="bg-purple-100 p-2 rounded">Coach: ${data.response}</div>`;
-        }
-        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    try {
+        const url = `/api/workouts/{{ workout.id }}/stream-chat?message=${encodeURIComponent(message)}`;
+        const eventSource = new EventSource(url);
+
+        eventSource.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+
+            if (data.type === 'chunk') {
+                fullResponse += data.content;
+                responseDiv.innerHTML = marked.parse(fullResponse);
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            } else if (data.type === 'done') {
+                eventSource.close();
+                responseDiv.innerHTML = marked.parse(fullResponse);
+                responseDiv.id = '';
+                isChatting = false;
+                document.getElementById('chat-send-btn').disabled = false;
+            } else if (data.type === 'error') {
+                eventSource.close();
+                responseDiv.innerHTML = `<span class="text-red-600">Error: ${escapeHtml(data.content)}</span>`;
+                isChatting = false;
+                document.getElementById('chat-send-btn').disabled = false;
+            }
+        };
+
+        eventSource.onerror = () => {
+            eventSource.close();
+            if (!fullResponse) {
+                responseDiv.innerHTML = '<span class="text-red-600">Connection error. Please try again.</span>';
+            }
+            isChatting = false;
+            document.getElementById('chat-send-btn').disabled = false;
+        };
     } catch (e) {
-        messagesDiv.innerHTML += `<div class="bg-red-100 p-2 rounded">Error: Failed to send message</div>`;
+        responseDiv.innerHTML = `<span class="text-red-600">Error: ${e.message}</span>`;
+        isChatting = false;
+        document.getElementById('chat-send-btn').disabled = false;
     }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 // Save RIR

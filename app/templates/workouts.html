@@ -43,20 +43,34 @@
 </div>
 {% endif %}
 
-<!-- Current Exercise Weights -->
+<!-- Exercise Progress -->
 {% if exercises %}
 <div class="mb-6">
-    <h2 class="text-lg font-semibold mb-3 text-gray-700">Current Working Weights</h2>
-    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+    <h2 class="text-lg font-semibold mb-3 text-gray-700">Exercise Progress</h2>
+    <div class="space-y-4">
         {% for ex in exercises %}
-        <div class="bg-white border rounded-lg p-3">
-            <p class="text-xs text-gray-500 uppercase tracking-wide">{{ ex.exercise_type.value.replace('_', ' ') }}</p>
-            <p class="text-xl font-bold">
-                {% if ex.last_top_set_weight %}{{ ex.last_top_set_weight|int }} lb{% else %}--{% endif %}
-            </p>
-            {% if ex.last_rir is not none %}
-            <p class="text-xs text-gray-400">RIR {{ ex.last_rir }}{% if ex.last_rir >= 6 %}+{% endif %}</p>
-            {% endif %}
+        <div class="bg-white border rounded-lg p-4">
+            <div class="flex items-start justify-between mb-3">
+                <div>
+                    <p class="text-sm font-medium text-gray-700">{{ ex.exercise_type.value.replace('_', ' ').title() }}</p>
+                    <p class="text-2xl font-bold text-gray-900">
+                        {% if ex.last_top_set_weight %}{{ ex.last_top_set_weight|int }} lb{% else %}--{% endif %}
+                    </p>
+                    {% if ex.last_rir is not none %}
+                    <p class="text-xs text-gray-400">Last RIR: {{ ex.last_rir }}{% if ex.last_rir >= 6 %}+{% endif %}</p>
+                    {% endif %}
+                </div>
+                <div class="text-right text-xs text-gray-400">
+                    {% set history = exercise_history.get(ex.exercise_type.value, []) %}
+                    {% if history %}
+                    {{ history|length }} workouts
+                    {% endif %}
+                </div>
+            </div>
+            <!-- Chart -->
+            <div class="h-24">
+                <canvas id="chart-{{ ex.exercise_type.value }}" class="w-full h-full"></canvas>
+            </div>
         </div>
         {% endfor %}
     </div>
@@ -84,4 +98,81 @@
     <p class="text-gray-500 text-sm">No completed workouts yet. Start your first workout above!</p>
     {% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+// Exercise history data from server
+const exerciseHistory = {{ exercise_history | tojson | safe }};
+
+// Chart colors by exercise type
+const chartColors = {
+    'SQUAT': { line: 'rgb(239, 68, 68)', fill: 'rgba(239, 68, 68, 0.1)' },
+    'BENCH_PRESS': { line: 'rgb(59, 130, 246)', fill: 'rgba(59, 130, 246, 0.1)' },
+    'PENDLAY_ROW': { line: 'rgb(34, 197, 94)', fill: 'rgba(34, 197, 94, 0.1)' },
+    'OVERHEAD_PRESS': { line: 'rgb(168, 85, 247)', fill: 'rgba(168, 85, 247, 0.1)' },
+    'DEADLIFT': { line: 'rgb(249, 115, 22)', fill: 'rgba(249, 115, 22, 0.1)' },
+    'PULL_UP': { line: 'rgb(20, 184, 166)', fill: 'rgba(20, 184, 166, 0.1)' },
+};
+
+// Create charts for each exercise
+document.addEventListener('DOMContentLoaded', () => {
+    for (const [exerciseType, history] of Object.entries(exerciseHistory)) {
+        const canvas = document.getElementById(`chart-${exerciseType}`);
+        if (!canvas || history.length === 0) continue;
+
+        const labels = history.map(h => h.date.slice(5)); // MM-DD format
+        const weights = history.map(h => h.weight || 0);
+        const colors = chartColors[exerciseType] || { line: 'rgb(107, 114, 128)', fill: 'rgba(107, 114, 128, 0.1)' };
+
+        new Chart(canvas, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: weights,
+                    borderColor: colors.line,
+                    backgroundColor: colors.fill,
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: 3,
+                    pointHoverRadius: 5,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => {
+                                const h = history[ctx.dataIndex];
+                                let label = `${h.weight} lb × ${h.reps}`;
+                                if (h.rir !== null) label += ` (RIR ${h.rir})`;
+                                return label;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        display: true,
+                        grid: { display: false },
+                        ticks: { font: { size: 9 }, maxRotation: 0 }
+                    },
+                    y: {
+                        display: true,
+                        grid: { color: 'rgba(0,0,0,0.05)' },
+                        ticks: { font: { size: 9 } },
+                        beginAtZero: false,
+                    }
+                }
+            }
+        });
+    }
+});
+</script>
 {% endblock %}

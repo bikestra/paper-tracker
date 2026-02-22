@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
-from typing import Any
+from typing import Any, AsyncGenerator
 
 import httpx
 
 from . import models, schemas
+
+logger = logging.getLogger(__name__)
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
@@ -183,11 +186,54 @@ async def call_openai(
         return data["choices"][0]["message"]["content"]
 
 
+async def stream_openai(
+    messages: list[dict[str, str]],
+    model: str = "gpt-4o-mini",
+    max_tokens: int = 2000,
+    temperature: float = 0.7,
+) -> AsyncGenerator[str, None]:
+    """Stream responses from OpenAI API."""
+    if not OPENAI_API_KEY:
+        raise GPTError("OPENAI_API_KEY not configured")
+
+    async with httpx.AsyncClient() as client:
+        async with client.stream(
+            "POST",
+            "https://api.openai.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENAI_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "stream": True,
+            },
+            timeout=120.0,
+        ) as response:
+            if response.status_code != 200:
+                error_text = await response.aread()
+                raise GPTError(f"OpenAI API error: {response.status_code} - {error_text}")
+
+            async for line in response.aiter_lines():
+                if line.startswith("data: "):
+                    data_str = line[6:]  # Remove "data: " prefix
+                    if data_str.strip() == "[DONE]":
+                        break
+                    try:
+                        data = json.loads(data_str)
+                        delta = data["choices"][0].get("delta", {})
+                        content = delta.get("content", "")
+                        if content:
+                            yield content
+                    except json.JSONDecodeError:
+                        continue
+
+
 def parse_workout_plan(response: str) -> schemas.GPTWorkoutPlan | None:
     """Parse workout plan JSON from GPT response."""
-    import logging
-    logger = logging.getLogger(__name__)
-
     # Try to find JSON block in the response
     json_match = re.search(r'```json\s*(\{.*?\})\s*```', response, re.DOTALL)
     if not json_match:

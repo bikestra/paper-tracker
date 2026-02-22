@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Annotated, Optional
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
@@ -1507,6 +1507,13 @@ def workouts_page(
     exercises = crud.get_exercises(db, user_id=user_id)
     next_workout_type = crud.get_next_workout_type(db, user_id=user_id)
 
+    # Get exercise history for charts (last 20 workouts per exercise)
+    exercise_history = {}
+    for ex_type in models.ExerciseType:
+        history = crud.get_exercise_history(db, ex_type, user_id=user_id, limit=20)
+        # Reverse to get chronological order (oldest first)
+        exercise_history[ex_type.value] = list(reversed(history))
+
     return templates.TemplateResponse(
         "workouts.html",
         {
@@ -1515,6 +1522,7 @@ def workouts_page(
             "recent_workouts": recent_workouts,
             "exercises": exercises,
             "next_workout_type": next_workout_type,
+            "exercise_history": exercise_history,
             "active_page": "workouts",
         },
     )
@@ -1540,21 +1548,23 @@ def workout_plan_page(
     current_user: models.User = Depends(get_current_user),
 ):
     """Workout planning page - enter context and generate plan."""
+    from .gpt import get_exercises_for_workout, SYSTEM_PROMPT, build_workout_plan_prompt
+
     workout = crud.get_workout(db, workout_id, user_id=current_user.id)
     if not workout:
         raise HTTPException(status_code=404, detail="Workout not found")
 
-    # Get exercises for this workout type
-    from .gpt import get_exercises_for_workout
-
     exercise_types = get_exercises_for_workout(workout.workout_type)
 
-    # Get recent history for each exercise
+    # Get recent history for each exercise (last 10 records)
     exercise_history = {}
     for ex_type in exercise_types:
         exercise_history[ex_type] = crud.get_exercise_history(
-            db, ex_type, user_id=current_user.id, limit=5
+            db, ex_type, user_id=current_user.id, limit=10
         )
+
+    # Build the full prompt to show the user
+    user_prompt = build_workout_plan_prompt(workout.workout_type, exercise_history, workout.context)
 
     return templates.TemplateResponse(
         "workout_plan.html",
@@ -1563,6 +1573,8 @@ def workout_plan_page(
             "workout": workout,
             "exercise_types": exercise_types,
             "exercise_history": exercise_history,
+            "system_prompt": SYSTEM_PROMPT,
+            "user_prompt": user_prompt,
             "active_page": "workouts",
         },
     )
@@ -1659,6 +1671,258 @@ async def generate_workout_plan(
             },
             status_code=500,
         )
+
+
+@app.get("/api/workouts/{workout_id}/stream-plan")
+async def stream_workout_plan(
+    workout_id: int,
+    message: str = "",
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Stream workout plan generation via SSE."""
+    import json as json_module
+    from .gpt import (
+        stream_openai, SYSTEM_PROMPT, build_workout_plan_prompt,
+        get_exercises_for_workout, format_exercise_history, GPTError
+    )
+
+    workout = crud.get_workout(db, workout_id, user_id=current_user.id)
+    if not workout:
+        raise HTTPException(status_code=404, detail="Workout not found")
+
+    # Get exercise history (last 10 records)
+    exercise_types = get_exercises_for_workout(workout.workout_type)
+    exercise_history = {}
+    for ex_type in exercise_types:
+        exercise_history[ex_type] = crud.get_exercise_history(
+            db, ex_type, user_id=current_user.id, limit=10
+        )
+
+    # Get previous conversations for this workout
+    conversations = crud.get_recent_conversations(db, workout_id=workout_id, user_id=current_user.id, limit=20)
+
+    # Build messages
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+    # Add conversation history
+    for conv in reversed(conversations):
+        messages.append({"role": "user", "content": conv.user_message})
+        messages.append({"role": "assistant", "content": conv.gpt_response})
+
+    # Determine user message
+    if message:
+        user_message = message
+    else:
+        # Initial plan generation
+        user_message = build_workout_plan_prompt(
+            workout.workout_type,
+            exercise_history,
+            workout.context,
+        )
+
+    messages.append({"role": "user", "content": user_message})
+
+    async def generate():
+        full_response = ""
+        try:
+            async for chunk in stream_openai(messages):
+                full_response += chunk
+                # Send chunk as SSE
+                yield f"data: {json_module.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+
+            # Save conversation to DB
+            crud.save_gpt_conversation(
+                db,
+                user_message=user_message,
+                gpt_response=full_response,
+                workout_id=workout_id,
+                user_id=current_user.id,
+            )
+
+            # Send completion with full response
+            yield f"data: {json_module.dumps({'type': 'done', 'content': full_response})}\n\n"
+        except GPTError as e:
+            yield f"data: {json_module.dumps({'type': 'error', 'content': str(e)})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+@app.post("/api/workouts/{workout_id}/accept-plan")
+async def accept_workout_plan(
+    request: Request,
+    workout_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Accept the workout plan and create sets from the last GPT response."""
+    from .gpt import parse_workout_plan, GPTError
+
+    workout = crud.get_workout(db, workout_id, user_id=current_user.id)
+    if not workout:
+        raise HTTPException(status_code=404, detail="Workout not found")
+
+    # Get the most recent GPT response for this workout
+    conversations = crud.get_recent_conversations(db, workout_id=workout_id, user_id=current_user.id, limit=1)
+    if not conversations:
+        return JSONResponse({"error": "No workout plan generated yet"}, status_code=400)
+
+    last_response = conversations[0].gpt_response
+    plan = parse_workout_plan(last_response)
+
+    if not plan or not plan.exercises:
+        return JSONResponse({"error": "Could not parse workout plan from response. Ask GPT to regenerate the plan."}, status_code=400)
+
+    # Create workout sets from the plan
+    all_sets = []
+    for ex_plan in plan.exercises:
+        logger.info(f"Creating sets for {ex_plan.exercise}: {len(ex_plan.sets)} sets")
+        for i, set_data in enumerate(ex_plan.sets):
+            all_sets.append(schemas.WorkoutSetCreate(
+                exercise_type=ex_plan.exercise,
+                set_type=set_data.type,
+                set_number=i + 1,
+                target_weight=set_data.weight,
+                target_reps=set_data.reps,
+            ))
+
+    logger.info(f"Adding {len(all_sets)} total sets to workout {workout_id}")
+    crud.add_workout_sets(db, workout_id, all_sets, user_id=current_user.id)
+
+    # Start the workout
+    crud.start_workout(db, workout_id, user_id=current_user.id)
+
+    return JSONResponse({"success": True, "redirect": f"/workouts/{workout_id}"})
+
+
+@app.get("/api/workouts/{workout_id}/parse-plan")
+async def parse_current_plan(
+    workout_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Parse and return the current workout plan from the last GPT response."""
+    from .gpt import parse_workout_plan
+
+    workout = crud.get_workout(db, workout_id, user_id=current_user.id)
+    if not workout:
+        raise HTTPException(status_code=404, detail="Workout not found")
+
+    # Get the most recent GPT response for this workout
+    conversations = crud.get_recent_conversations(db, workout_id=workout_id, user_id=current_user.id, limit=1)
+    if not conversations:
+        return JSONResponse({"plan": None})
+
+    last_response = conversations[0].gpt_response
+    plan = parse_workout_plan(last_response)
+
+    if not plan:
+        return JSONResponse({"plan": None})
+
+    # Convert to JSON-serializable format
+    plan_data = {
+        "exercises": [
+            {
+                "exercise": ex.exercise.value.replace("_", " ").title(),
+                "notes": ex.notes,
+                "sets": [
+                    {
+                        "type": s.type.value,
+                        "weight": s.weight,
+                        "reps": s.reps,
+                    }
+                    for s in ex.sets
+                ]
+            }
+            for ex in plan.exercises
+        ]
+    }
+
+    return JSONResponse({"plan": plan_data})
+
+
+@app.get("/api/workouts/{workout_id}/stream-chat")
+async def stream_coach_chat(
+    workout_id: int,
+    message: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Stream chat response from coach via SSE."""
+    import json as json_module
+    from .gpt import stream_openai, SYSTEM_PROMPT, format_exercise_history, get_exercises_for_workout, GPTError
+
+    workout = crud.get_workout(db, workout_id, user_id=current_user.id)
+    if not workout:
+        raise HTTPException(status_code=404, detail="Workout not found")
+
+    # Get exercise history for context
+    exercise_types = get_exercises_for_workout(workout.workout_type)
+    exercise_history = {}
+    for ex_type in exercise_types:
+        exercise_history[ex_type] = crud.get_exercise_history(
+            db, ex_type, user_id=current_user.id, limit=5
+        )
+
+    # Build context
+    workout_name = "Workout A" if workout.workout_type == models.WorkoutType.WORKOUT_A else "Workout B"
+    context = f"The user is currently doing {workout_name}."
+    context += "\n\nRecent exercise history:"
+    for ex_type, history in exercise_history.items():
+        ex_name = ex_type.value.replace("_", " ").title()
+        context += f"\n\n{ex_name}:\n{format_exercise_history(history)}"
+
+    # Get recent conversations
+    conversations = crud.get_recent_conversations(db, workout_id=workout_id, user_id=current_user.id, limit=10)
+
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages.append({"role": "user", "content": f"[Context: {context}]"})
+    messages.append({"role": "assistant", "content": "Got it, I understand the context. How can I help?"})
+
+    # Add conversation history
+    for conv in reversed(conversations):
+        messages.append({"role": "user", "content": conv.user_message})
+        messages.append({"role": "assistant", "content": conv.gpt_response})
+
+    messages.append({"role": "user", "content": message})
+
+    async def generate():
+        full_response = ""
+        try:
+            async for chunk in stream_openai(messages, max_tokens=1000):
+                full_response += chunk
+                yield f"data: {json_module.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+
+            # Save conversation
+            crud.save_gpt_conversation(
+                db,
+                user_message=message,
+                gpt_response=full_response,
+                workout_id=workout_id,
+                user_id=current_user.id,
+            )
+
+            yield f"data: {json_module.dumps({'type': 'done', 'content': full_response})}\n\n"
+        except GPTError as e:
+            yield f"data: {json_module.dumps({'type': 'error', 'content': str(e)})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 
 @app.get("/workouts/{workout_id}", response_class=HTMLResponse)
