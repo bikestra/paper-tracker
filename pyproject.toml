@@ -1,0 +1,15 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: marks tests that require network access (deselect with '-m \"not slow\"')",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:starlette",
+    "ignore::PendingDeprecationWarning:starlette",
+]
+
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.format]
+quote-style = "double"

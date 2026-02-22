@@ -1,4 +1,4 @@
-.PHONY: install db-upgrade db-downgrade run fmt
+.PHONY: install db-upgrade db-downgrade run fmt test test-all lint check
 
 install:
 	pip install -r requirements.txt
@@ -14,3 +14,14 @@ run:
 
 fmt:
 	ruff format app alembic
+
+test:
+	pytest tests/ -v -m "not slow"
+
+test-all:
+	pytest tests/ -v
+
+lint:
+	ruff check app alembic tests
+
+check: lint test
