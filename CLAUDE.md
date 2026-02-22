@@ -23,8 +23,91 @@ make run
 make fmt
 
 # Run tests
-pytest tests/ -v -m "not slow"
+make test              # Fast tests only (excludes @pytest.mark.slow)
+make test-all          # All tests including slow integration tests
+
+# Lint
+make lint              # ruff check on app, alembic, tests
+
+# Full check (lint + test)
+make check
 ```
+
+## Testing
+
+### Running Tests
+
+```bash
+make test                              # Default: fast tests only
+make test-all                          # Include slow (network) tests
+pytest tests/test_crud.py -v           # Run a single test file
+pytest tests/test_crud.py::TestPaperCRUD::test_create_paper_basic -v  # Single test
+pytest tests/ -v -k "author"           # Run tests matching keyword
+```
+
+### Test Structure
+
+Tests live in `tests/` and are organized by layer:
+
+| File | Layer | What it tests |
+|------|-------|---------------|
+| `test_arxiv.py` | Unit | arXiv URL/ID parsing, author name normalization |
+| `test_crud.py` | Database | CRUD operations against in-memory SQLite |
+| `test_routes.py` | HTTP | FastAPI endpoints via TestClient |
+
+### Fixtures (`tests/conftest.py`)
+
+- **`db_session`** — In-memory SQLite session with all tables created and a default user (id=1). Used by `test_crud.py` and `test_arxiv.py`.
+- **`client`** (in `test_routes.py`) — FastAPI `TestClient` with its own in-memory SQLite, overriding the `get_db` dependency. Includes a default user.
+
+Both fixtures create isolated databases per test — no test state leaks between tests.
+
+### Markers
+
+- `@pytest.mark.slow` — Tests requiring network access (e.g., real arXiv API calls). Excluded by default with `make test`.
+
+### Writing New Tests
+
+**Where to add tests:**
+- Pure functions (parsing, validation, formatting) → `test_arxiv.py` or a new `test_<module>.py`
+- Database operations (CRUD, queries) → `test_crud.py`
+- HTTP endpoints (status codes, HTML responses, redirects) → `test_routes.py`
+
+**Conventions:**
+- Group related tests in classes (e.g., `TestPaperCRUD`)
+- Use the `db_session` fixture for anything that touches the database
+- Use the `client` fixture for endpoint testing
+- All database tests run against in-memory SQLite — no external database needed
+- Mark network-dependent tests with `@pytest.mark.slow`
+- Test names: `test_<action>_<scenario>` (e.g., `test_create_paper_with_authors`)
+
+**Example test pattern (CRUD):**
+```python
+def test_create_paper_basic(self, db_session):
+    data = schemas.PaperCreate(title="Test Paper")
+    paper = crud.create_paper(db_session, data)
+
+    assert paper.id is not None
+    assert paper.title == "Test Paper"
+    assert paper.status == models.PaperStatus.PLANNED
+```
+
+**Example test pattern (route):**
+```python
+def test_home_page_loads(self, client):
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "Papers" in response.text
+```
+
+### Pre-commit / CI Checklist
+
+Before pushing changes, run:
+```bash
+make check   # lint + tests
+```
+
+This runs `ruff check` (linting) then `pytest` (fast tests). Both must pass.
 
 ## Architecture
 
