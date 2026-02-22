@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+
+{% block title %}Workout - Paper Tracker{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+    <div>
+        <h1 class="text-xl font-bold text-gray-900">{{ workout.workout_type.value.replace('_', ' ') }}</h1>
+        <p class="text-sm text-gray-500">Started {{ workout.started_at|pacific }}</p>
+    </div>
+    <div class="flex gap-2">
+        <form action="/workouts/{{ workout.id }}/complete" method="POST" class="inline">
+            <button type="submit" class="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors">
+                Finish
+            </button>
+        </form>
+        <form action="/workouts/{{ workout.id }}/abandon" method="POST" class="inline">
+            <button type="submit" class="px-3 py-2 text-gray-500 text-sm hover:text-red-600 transition-colors">
+                Abandon
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- Chat Toggle -->
+<div class="mb-4">
+    <button onclick="document.getElementById('gpt-chat').classList.toggle('hidden')"
+            class="px-3 py-1.5 bg-purple-100 text-purple-700 rounded-lg text-sm hover:bg-purple-200 transition-colors flex items-center gap-1">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
+        </svg>
+        Ask Coach
+    </button>
+</div>
+
+<!-- GPT Chat Panel -->
+<div id="gpt-chat" class="hidden mb-4 bg-purple-50 border border-purple-200 rounded-lg p-4">
+    <div id="gpt-messages" class="max-h-48 overflow-y-auto mb-3 space-y-2 text-sm">
+        {% for conv in conversations %}
+        <div class="bg-white p-2 rounded">You: {{ conv.user_message }}</div>
+        <div class="bg-purple-100 p-2 rounded">Coach: {{ conv.gpt_response[:500] }}{% if conv.gpt_response|length > 500 %}...{% endif %}</div>
+        {% endfor %}
+    </div>
+    <div class="flex gap-2">
+        <input type="text" id="gpt-input" placeholder="Ask about form, weight adjustments..."
+               class="flex-1 px-3 py-2 border rounded-lg text-sm">
+        <button onclick="sendGPTMessage()" class="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700">
+            Send
+        </button>
+    </div>
+</div>
+
+<!-- Exercise Sections -->
+{% for exercise_type, sets in sets_by_exercise.items() %}
+<div class="mb-6">
+    <div class="flex items-center justify-between mb-2">
+        <h2 class="text-lg font-semibold text-gray-800">{{ exercise_type.value.replace('_', ' ').title() }}</h2>
+    </div>
+
+    <!-- Sets -->
+    <div class="space-y-2" id="sets-{{ exercise_type.value }}">
+        {% for s in sets %}
+        {% include "partials/workout_set.html" %}
+        {% endfor %}
+    </div>
+
+    <!-- RIR Input -->
+    <div class="mt-3" id="rir-{{ exercise_type.value }}">
+        {% set result = exercise_results.get(exercise_type) %}
+        {% include "partials/rir_input.html" %}
+    </div>
+</div>
+{% endfor %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Tap to complete (quick complete with target values)
+function quickComplete(setId, targetWeight, targetReps) {
+    const formData = new FormData();
+    formData.append('actual_weight', targetWeight);
+    formData.append('actual_reps', targetReps);
+
+    fetch(`/workouts/sets/${setId}/complete`, {
+        method: 'POST',
+        body: formData
+    }).then(r => r.text())
+      .then(html => {
+          const el = document.querySelector(`[data-set-id="${setId}"]`);
+          if (el) el.outerHTML = html;
+      });
+}
+
+// Long press detection
+let pressTimer;
+let pressTarget;
+
+function startPress(setId, el) {
+    pressTarget = setId;
+    pressTimer = setTimeout(() => showEditModal(setId, el), 500);
+}
+
+function cancelPress() {
+    clearTimeout(pressTimer);
+}
+
+function showEditModal(setId, el) {
+    // Get current values from the element
+    const weight = el.dataset.weight;
+    const reps = el.dataset.reps;
+
+    const modal = document.getElementById('edit-modal');
+    modal.dataset.setId = setId;
+    document.getElementById('edit-weight').value = weight;
+    document.getElementById('edit-reps').value = reps;
+    modal.classList.remove('hidden');
+}
+
+function closeEditModal() {
+    document.getElementById('edit-modal').classList.add('hidden');
+}
+
+function saveSetEdit() {
+    const modal = document.getElementById('edit-modal');
+    const setId = modal.dataset.setId;
+    const weight = document.getElementById('edit-weight').value;
+    const reps = document.getElementById('edit-reps').value;
+
+    const formData = new FormData();
+    formData.append('target_weight', weight);
+    formData.append('target_reps', reps);
+
+    fetch(`/workouts/sets/${setId}/edit`, {
+        method: 'POST',
+        body: formData
+    }).then(r => r.text())
+      .then(html => {
+          const el = document.querySelector(`[data-set-id="${setId}"]`);
+          if (el) el.outerHTML = html;
+          closeEditModal();
+      });
+}
+
+// GPT Chat
+async function sendGPTMessage() {
+    const input = document.getElementById('gpt-input');
+    const message = input.value.trim();
+    if (!message) return;
+
+    const messagesDiv = document.getElementById('gpt-messages');
+    messagesDiv.innerHTML += `<div class="bg-white p-2 rounded">You: ${message}</div>`;
+    input.value = '';
+
+    // Scroll to bottom
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+    try {
+        const response = await fetch('/api/workouts/{{ workout.id }}/chat', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({message: message, workout_id: {{ workout.id }}})
+        });
+        const data = await response.json();
+
+        if (data.error) {
+            messagesDiv.innerHTML += `<div class="bg-red-100 p-2 rounded">Error: ${data.error}</div>`;
+        } else {
+            messagesDiv.innerHTML += `<div class="bg-purple-100 p-2 rounded">Coach: ${data.response}</div>`;
+        }
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    } catch (e) {
+        messagesDiv.innerHTML += `<div class="bg-red-100 p-2 rounded">Error: Failed to send message</div>`;
+    }
+}
+
+// Save RIR
+function saveRIR(exerciseType) {
+    const container = document.getElementById(`rir-${exerciseType}`);
+    const rir = container.querySelector('input[name="rir"]:checked')?.value;
+    const notes = container.querySelector('textarea[name="notes"]')?.value || '';
+
+    if (rir === undefined) {
+        alert('Please select an RIR value');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('rir', rir);
+    formData.append('notes', notes);
+
+    fetch(`/workouts/{{ workout.id }}/exercises/${exerciseType}/rir`, {
+        method: 'POST',
+        body: formData
+    }).then(r => r.text())
+      .then(html => {
+          container.outerHTML = `<div class="mt-3" id="rir-${exerciseType}">${html}</div>`;
+      });
+}
+
+// Enter key for chat
+document.getElementById('gpt-input')?.addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        sendGPTMessage();
+    }
+});
+</script>
+
+<!-- Edit Modal -->
+<div id="edit-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg p-6 w-80">
+        <h3 class="text-lg font-semibold mb-4">Edit Set</h3>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm text-gray-600 mb-1">Weight (lb)</label>
+                <input type="number" id="edit-weight" step="2.5" class="w-full px-3 py-2 border rounded-lg">
+            </div>
+            <div>
+                <label class="block text-sm text-gray-600 mb-1">Reps</label>
+                <input type="number" id="edit-reps" class="w-full px-3 py-2 border rounded-lg">
+            </div>
+        </div>
+        <div class="flex gap-2 mt-6">
+            <button onclick="closeEditModal()" class="flex-1 px-4 py-2 border rounded-lg hover:bg-gray-50">Cancel</button>
+            <button onclick="saveSetEdit()" class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Save</button>
+        </div>
+    </div>
+</div>
+{% endblock %}

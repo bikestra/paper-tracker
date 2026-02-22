@@ -655,6 +655,44 @@ def like_paper(
     return f'<span class="likes-count">{likes}</span>'
 
 
+@app.post("/papers/{paper_id}/start-reading", response_class=HTMLResponse)
+def start_reading_paper(
+    request: Request,
+    paper_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Move a paper from PLANNED to READING status."""
+    paper = crud.get_paper(db, paper_id, user_id=current_user.id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    # Update status to READING
+    crud.update_paper(
+        db,
+        paper_id,
+        schemas.PaperUpdate(status=models.PaperStatus.READING),
+        user_id=current_user.id,
+    )
+
+    # Return updated paper list for PLANNED status
+    papers = crud.get_papers(
+        db, user_id=current_user.id, status=models.PaperStatus.PLANNED
+    )
+    effort_totals = crud.get_all_papers_effort_totals(db, current_user.id)
+    source_counts = crud.get_all_papers_source_counts(db, current_user.id)
+    return templates.TemplateResponse(
+        request,
+        "partials/paper_list.html",
+        {
+            "papers": papers,
+            "effort_totals": effort_totals,
+            "source_counts": source_counts,
+            "sortable": True,
+        },
+    )
+
+
 @app.post("/papers/{paper_id}/effort", response_class=HTMLResponse)
 def log_paper_effort(
     request: Request,
@@ -1449,3 +1487,390 @@ def textbooks_partial(
             "effort_totals": effort_totals,
         },
     )
+
+
+# --- Workout Routes ---
+
+
+@app.get("/workouts", response_class=HTMLResponse)
+def workouts_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Main workouts page."""
+    user_id = current_user.id
+    active_workout = crud.get_active_workout(db, user_id=user_id)
+    recent_workouts = crud.get_workouts(
+        db, user_id=user_id, limit=10, status=models.WorkoutStatus.COMPLETED
+    )
+    exercises = crud.get_exercises(db, user_id=user_id)
+    next_workout_type = crud.get_next_workout_type(db, user_id=user_id)
+
+    return templates.TemplateResponse(
+        "workouts.html",
+        {
+            "request": request,
+            "active_workout": active_workout,
+            "recent_workouts": recent_workouts,
+            "exercises": exercises,
+            "next_workout_type": next_workout_type,
+            "active_page": "workouts",
+        },
+    )
+
+
+@app.post("/workouts/start", response_class=HTMLResponse)
+def start_workout(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Start a new workout (auto-selects A or B based on last workout)."""
+    workout_type = crud.get_next_workout_type(db, user_id=current_user.id)
+    workout = crud.create_workout(db, workout_type=workout_type, user_id=current_user.id)
+    return RedirectResponse(url=f"/workouts/{workout.id}/plan", status_code=303)
+
+
+@app.get("/workouts/{workout_id}/plan", response_class=HTMLResponse)
+def workout_plan_page(
+    request: Request,
+    workout_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Workout planning page - enter context and generate plan."""
+    workout = crud.get_workout(db, workout_id, user_id=current_user.id)
+    if not workout:
+        raise HTTPException(status_code=404, detail="Workout not found")
+
+    # Get exercises for this workout type
+    from .gpt import get_exercises_for_workout
+
+    exercise_types = get_exercises_for_workout(workout.workout_type)
+
+    # Get recent history for each exercise
+    exercise_history = {}
+    for ex_type in exercise_types:
+        exercise_history[ex_type] = crud.get_exercise_history(
+            db, ex_type, user_id=current_user.id, limit=5
+        )
+
+    return templates.TemplateResponse(
+        "workout_plan.html",
+        {
+            "request": request,
+            "workout": workout,
+            "exercise_types": exercise_types,
+            "exercise_history": exercise_history,
+            "active_page": "workouts",
+        },
+    )
+
+
+@app.post("/workouts/{workout_id}/generate", response_class=HTMLResponse)
+async def generate_workout_plan(
+    request: Request,
+    workout_id: int,
+    context: Annotated[str, Form()] = "",
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Generate workout plan using GPT."""
+    from .gpt import generate_workout_plan as gpt_generate_plan, get_exercises_for_workout, GPTError
+
+    workout = crud.get_workout(db, workout_id, user_id=current_user.id)
+    if not workout:
+        raise HTTPException(status_code=404, detail="Workout not found")
+
+    # Update context
+    workout.context = context if context else None
+    db.commit()
+
+    # Get exercise history
+    exercise_types = get_exercises_for_workout(workout.workout_type)
+    exercise_history = {}
+    for ex_type in exercise_types:
+        exercise_history[ex_type] = crud.get_exercise_history(
+            db, ex_type, user_id=current_user.id, limit=5
+        )
+
+    try:
+        gpt_response, plan = await gpt_generate_plan(
+            workout.workout_type,
+            exercise_history,
+            context if context else None,
+        )
+
+        # Save the conversation
+        crud.save_gpt_conversation(
+            db,
+            user_message=f"Generate workout plan for {workout.workout_type.value}" + (f"\nContext: {context}" if context else ""),
+            gpt_response=gpt_response,
+            workout_id=workout_id,
+            user_id=current_user.id,
+        )
+
+        if plan:
+            # Create workout sets from the plan
+            all_sets = []
+            for ex_plan in plan.exercises:
+                logger.info(f"Creating sets for {ex_plan.exercise}: {len(ex_plan.sets)} sets")
+                for i, set_data in enumerate(ex_plan.sets):
+                    all_sets.append(schemas.WorkoutSetCreate(
+                        exercise_type=ex_plan.exercise,
+                        set_type=set_data.type,
+                        set_number=i + 1,
+                        target_weight=set_data.weight,
+                        target_reps=set_data.reps,
+                    ))
+            logger.info(f"Adding {len(all_sets)} total sets to workout {workout_id}")
+            crud.add_workout_sets(db, workout_id, all_sets, user_id=current_user.id)
+
+            # Start the workout
+            crud.start_workout(db, workout_id, user_id=current_user.id)
+
+            return RedirectResponse(url=f"/workouts/{workout_id}", status_code=303)
+        else:
+            # Parsing failed - show error with GPT response
+            return templates.TemplateResponse(
+                "workout_plan.html",
+                {
+                    "request": request,
+                    "workout": workout,
+                    "exercise_types": exercise_types,
+                    "exercise_history": exercise_history,
+                    "active_page": "workouts",
+                    "error": "Failed to parse workout plan from GPT response. Please try again.",
+                    "gpt_response": gpt_response,
+                },
+            )
+
+    except GPTError as e:
+        return templates.TemplateResponse(
+            "workout_plan.html",
+            {
+                "request": request,
+                "workout": workout,
+                "exercise_types": exercise_types,
+                "exercise_history": exercise_history,
+                "active_page": "workouts",
+                "error": str(e),
+            },
+            status_code=500,
+        )
+
+
+@app.get("/workouts/{workout_id}", response_class=HTMLResponse)
+def workout_detail(
+    request: Request,
+    workout_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Active workout view."""
+    workout = crud.get_workout(db, workout_id, user_id=current_user.id)
+    if not workout:
+        raise HTTPException(status_code=404, detail="Workout not found")
+
+    # Group sets by exercise
+    sets_by_exercise: dict[models.ExerciseType, list[models.WorkoutSet]] = {}
+    for ws in workout.workout_sets:
+        if ws.exercise_type not in sets_by_exercise:
+            sets_by_exercise[ws.exercise_type] = []
+        sets_by_exercise[ws.exercise_type].append(ws)
+
+    # Sort sets by set_number within each exercise
+    for ex_type in sets_by_exercise:
+        sets_by_exercise[ex_type].sort(key=lambda s: s.set_number)
+
+    # Get exercise results (RIR) already submitted
+    exercise_results = {r.exercise_type: r for r in workout.exercise_results}
+
+    # Get GPT conversations for this workout
+    conversations = crud.get_recent_conversations(
+        db, user_id=current_user.id, workout_id=workout_id, limit=20
+    )
+
+    return templates.TemplateResponse(
+        "workout_active.html",
+        {
+            "request": request,
+            "workout": workout,
+            "sets_by_exercise": sets_by_exercise,
+            "exercise_results": exercise_results,
+            "conversations": conversations,
+            "active_page": "workouts",
+        },
+    )
+
+
+@app.post("/workouts/sets/{set_id}/complete", response_class=HTMLResponse)
+def complete_set_route(
+    request: Request,
+    set_id: int,
+    actual_weight: Annotated[float | None, Form()] = None,
+    actual_reps: Annotated[int | None, Form()] = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Mark a set as completed."""
+    ws = crud.complete_set(db, set_id, actual_weight, actual_reps, user_id=current_user.id)
+    if not ws:
+        raise HTTPException(status_code=404, detail="Set not found")
+
+    return templates.TemplateResponse(
+        "partials/workout_set.html",
+        {"request": request, "set": ws},
+    )
+
+
+@app.post("/workouts/sets/{set_id}/edit", response_class=HTMLResponse)
+def edit_set_route(
+    request: Request,
+    set_id: int,
+    target_weight: Annotated[float | None, Form()] = None,
+    target_reps: Annotated[int | None, Form()] = None,
+    notes: Annotated[str | None, Form()] = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Edit set target values."""
+    ws = crud.update_set(db, set_id, target_weight, target_reps, notes, user_id=current_user.id)
+    if not ws:
+        raise HTTPException(status_code=404, detail="Set not found")
+
+    return templates.TemplateResponse(
+        "partials/workout_set.html",
+        {"request": request, "set": ws},
+    )
+
+
+@app.post("/workouts/{workout_id}/exercises/{exercise_type}/rir", response_class=HTMLResponse)
+def save_exercise_rir(
+    request: Request,
+    workout_id: int,
+    exercise_type: str,
+    rir: Annotated[int, Form()],
+    notes: Annotated[str | None, Form()] = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Save RIR for an exercise."""
+    ex_type = models.ExerciseType(exercise_type)
+
+    # Get the top set for this exercise to save its weight/reps
+    workout = crud.get_workout(db, workout_id, user_id=current_user.id)
+    if not workout:
+        raise HTTPException(status_code=404, detail="Workout not found")
+
+    # Find the top set
+    top_set = None
+    for ws in workout.workout_sets:
+        if ws.exercise_type == ex_type and ws.set_type == models.SetType.TOP_SET:
+            top_set = ws
+            break
+
+    top_weight = top_set.actual_weight or top_set.target_weight if top_set else None
+    top_reps = top_set.actual_reps or top_set.target_reps if top_set else None
+
+    result = crud.save_exercise_result(
+        db,
+        workout_id=workout_id,
+        exercise_type=ex_type,
+        top_set_weight=top_weight,
+        top_set_reps=top_reps,
+        rir=rir,
+        notes=notes,
+        user_id=current_user.id,
+    )
+
+    if not result:
+        raise HTTPException(status_code=404, detail="Could not save result")
+
+    return templates.TemplateResponse(
+        "partials/rir_input.html",
+        {"request": request, "exercise_type": ex_type, "result": result, "saved": True},
+    )
+
+
+@app.post("/workouts/{workout_id}/complete")
+def complete_workout_route(
+    workout_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Complete the workout."""
+    workout = crud.complete_workout(db, workout_id, user_id=current_user.id)
+    if not workout:
+        raise HTTPException(status_code=404, detail="Workout not found")
+
+    return RedirectResponse(url="/workouts", status_code=303)
+
+
+@app.post("/workouts/{workout_id}/abandon")
+def abandon_workout_route(
+    workout_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Abandon the workout."""
+    workout = crud.abandon_workout(db, workout_id, user_id=current_user.id)
+    if not workout:
+        raise HTTPException(status_code=404, detail="Workout not found")
+
+    return RedirectResponse(url="/workouts", status_code=303)
+
+
+@app.post("/api/workouts/{workout_id}/chat", response_class=JSONResponse)
+async def chat_with_coach(
+    workout_id: int,
+    data: schemas.GPTMessageRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Chat with GPT coach during workout."""
+    from .gpt import chat_with_coach as gpt_chat, get_exercises_for_workout, GPTError
+
+    workout = crud.get_workout(db, workout_id, user_id=current_user.id)
+    if not workout:
+        raise HTTPException(status_code=404, detail="Workout not found")
+
+    # Get exercise history for context
+    exercise_types = get_exercises_for_workout(workout.workout_type)
+    exercise_history = {}
+    for ex_type in exercise_types:
+        exercise_history[ex_type] = crud.get_exercise_history(
+            db, ex_type, user_id=current_user.id, limit=5
+        )
+
+    # Get recent conversation history for this workout
+    recent_convos = crud.get_recent_conversations(
+        db, user_id=current_user.id, workout_id=workout_id, limit=5
+    )
+    conversation_history = []
+    for conv in reversed(list(recent_convos)):
+        conversation_history.append({"role": "user", "content": conv.user_message})
+        conversation_history.append({"role": "assistant", "content": conv.gpt_response})
+
+    try:
+        response = await gpt_chat(
+            data.message,
+            workout_type=workout.workout_type,
+            exercise_history=exercise_history,
+            conversation_history=conversation_history,
+        )
+
+        # Save conversation
+        crud.save_gpt_conversation(
+            db,
+            user_message=data.message,
+            gpt_response=response,
+            workout_id=workout_id,
+            user_id=current_user.id,
+        )
+
+        return {"response": response}
+
+    except GPTError as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)

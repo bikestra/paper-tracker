@@ -1,0 +1,48 @@
+<div data-set-id="{{ s.id }}"
+     data-weight="{{ s.target_weight }}"
+     data-reps="{{ s.target_reps }}"
+     class="flex items-center gap-3 p-3 rounded-lg border transition-all select-none
+            {% if s.completed %}bg-green-50 border-green-200{% else %}bg-white hover:bg-gray-50{% endif %}"
+     {% if not s.completed %}
+     onmousedown="startPress({{ s.id }}, this)"
+     onmouseup="cancelPress()"
+     onmouseleave="cancelPress()"
+     ontouchstart="startPress({{ s.id }}, this)"
+     ontouchend="cancelPress()"
+     {% endif %}>
+
+    <!-- Set Type Badge -->
+    <span class="px-2 py-0.5 text-xs rounded font-medium
+                 {% if s.set_type.value == 'WARMUP' %}bg-gray-100 text-gray-600
+                 {% elif s.set_type.value == 'TOP_SET' %}bg-red-100 text-red-700
+                 {% else %}bg-blue-100 text-blue-700{% endif %}">
+        {% if s.set_type.value == 'WARMUP' %}W{% elif s.set_type.value == 'TOP_SET' %}TOP{% else %}BO{% endif %}
+    </span>
+
+    <!-- Weight & Reps -->
+    <div class="flex-1">
+        <span class="font-bold text-lg">{{ s.target_weight|int }}</span>
+        <span class="text-gray-500">lb</span>
+        <span class="text-gray-400 mx-1">x</span>
+        <span class="font-medium">{{ s.target_reps }}</span>
+        {% if s.completed and (s.actual_weight != s.target_weight or s.actual_reps != s.target_reps) %}
+        <span class="text-green-600 text-sm ml-2">
+            (did {{ s.actual_weight|int }} x {{ s.actual_reps }})
+        </span>
+        {% endif %}
+    </div>
+
+    <!-- Complete Button / Check -->
+    {% if not s.completed %}
+    <button onclick="event.stopPropagation(); quickComplete({{ s.id }}, {{ s.target_weight }}, {{ s.target_reps }})"
+            class="p-2 text-green-600 hover:bg-green-100 rounded-full transition-colors">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+        </svg>
+    </button>
+    {% else %}
+    <svg class="w-6 h-6 text-green-600" fill="currentColor" viewBox="0 0 24 24">
+        <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"></path>
+    </svg>
+    {% endif %}
+</div>

@@ -953,3 +953,426 @@ def reorder_textbooks(
 
     db.commit()
     return True
+
+
+# --- Exercise Tracking CRUD ---
+
+
+def get_or_create_exercise(
+    db: Session,
+    exercise_type: models.ExerciseType,
+    user_id: int = DEFAULT_USER_ID,
+) -> models.Exercise:
+    """Get or create an exercise record for tracking state."""
+    stmt = select(models.Exercise).where(
+        models.Exercise.user_id == user_id,
+        models.Exercise.exercise_type == exercise_type,
+    )
+    exercise = db.scalar(stmt)
+    if exercise:
+        return exercise
+
+    exercise = models.Exercise(user_id=user_id, exercise_type=exercise_type)
+    db.add(exercise)
+    db.commit()
+    db.refresh(exercise)
+    return exercise
+
+
+def get_exercises(
+    db: Session, user_id: int = DEFAULT_USER_ID
+) -> Sequence[models.Exercise]:
+    """Get all exercises for a user."""
+    stmt = select(models.Exercise).where(models.Exercise.user_id == user_id)
+    return db.scalars(stmt).all()
+
+
+def update_exercise_from_result(
+    db: Session,
+    exercise_type: models.ExerciseType,
+    top_set_weight: float | None,
+    top_set_reps: int | None,
+    rir: int | None,
+    user_id: int = DEFAULT_USER_ID,
+) -> models.Exercise:
+    """Update exercise state after completing sets."""
+    exercise = get_or_create_exercise(db, exercise_type, user_id)
+    if top_set_weight is not None:
+        exercise.last_top_set_weight = top_set_weight
+    if top_set_reps is not None:
+        exercise.last_top_set_reps = top_set_reps
+    if rir is not None:
+        exercise.last_rir = rir
+    db.commit()
+    db.refresh(exercise)
+    return exercise
+
+
+# --- Workout CRUD ---
+
+
+def get_active_workout(
+    db: Session, user_id: int = DEFAULT_USER_ID
+) -> models.Workout | None:
+    """Get the active (in-progress or planning) workout."""
+    stmt = (
+        select(models.Workout)
+        .where(
+            models.Workout.user_id == user_id,
+            models.Workout.status.in_(
+                [models.WorkoutStatus.PLANNING, models.WorkoutStatus.IN_PROGRESS]
+            ),
+        )
+        .options(
+            joinedload(models.Workout.workout_sets),
+            joinedload(models.Workout.exercise_results),
+        )
+        .order_by(models.Workout.started_at.desc())
+    )
+    return db.scalar(stmt)
+
+
+def get_workout(
+    db: Session, workout_id: int, user_id: int = DEFAULT_USER_ID
+) -> models.Workout | None:
+    """Get a workout by ID."""
+    stmt = (
+        select(models.Workout)
+        .where(models.Workout.id == workout_id, models.Workout.user_id == user_id)
+        .options(
+            joinedload(models.Workout.workout_sets),
+            joinedload(models.Workout.exercise_results),
+        )
+    )
+    return db.scalar(stmt)
+
+
+def get_workouts(
+    db: Session,
+    user_id: int = DEFAULT_USER_ID,
+    limit: int = 10,
+    status: models.WorkoutStatus | None = None,
+) -> Sequence[models.Workout]:
+    """Get recent workouts."""
+    stmt = (
+        select(models.Workout)
+        .where(models.Workout.user_id == user_id)
+        .order_by(models.Workout.started_at.desc())
+        .limit(limit)
+    )
+    if status:
+        stmt = stmt.where(models.Workout.status == status)
+    return db.scalars(stmt).all()
+
+
+def get_last_completed_workout(
+    db: Session, user_id: int = DEFAULT_USER_ID
+) -> models.Workout | None:
+    """Get the most recent completed workout."""
+    stmt = (
+        select(models.Workout)
+        .where(
+            models.Workout.user_id == user_id,
+            models.Workout.status == models.WorkoutStatus.COMPLETED,
+        )
+        .order_by(models.Workout.started_at.desc())
+        .limit(1)
+    )
+    return db.scalar(stmt)
+
+
+def get_next_workout_type(
+    db: Session, user_id: int = DEFAULT_USER_ID
+) -> models.WorkoutType:
+    """Determine the next workout type based on last completed workout."""
+    last_workout = get_last_completed_workout(db, user_id)
+    if last_workout is None:
+        # No previous workout, start with A
+        return models.WorkoutType.WORKOUT_A
+    # Alternate: A -> B -> A -> B
+    if last_workout.workout_type == models.WorkoutType.WORKOUT_A:
+        return models.WorkoutType.WORKOUT_B
+    return models.WorkoutType.WORKOUT_A
+
+
+def create_workout(
+    db: Session,
+    workout_type: models.WorkoutType,
+    context: str | None = None,
+    user_id: int = DEFAULT_USER_ID,
+) -> models.Workout:
+    """Create a new workout (starts in PLANNING state)."""
+    workout = models.Workout(
+        user_id=user_id,
+        workout_type=workout_type,
+        context=context,
+        status=models.WorkoutStatus.PLANNING,
+    )
+    db.add(workout)
+    db.commit()
+    db.refresh(workout)
+    return workout
+
+
+def start_workout(
+    db: Session, workout_id: int, user_id: int = DEFAULT_USER_ID
+) -> models.Workout | None:
+    """Transition workout from PLANNING to IN_PROGRESS."""
+    workout = get_workout(db, workout_id, user_id)
+    if not workout:
+        return None
+    workout.status = models.WorkoutStatus.IN_PROGRESS
+    db.commit()
+    db.refresh(workout)
+    return workout
+
+
+def complete_workout(
+    db: Session, workout_id: int, user_id: int = DEFAULT_USER_ID
+) -> models.Workout | None:
+    """Mark a workout as completed."""
+    workout = get_workout(db, workout_id, user_id)
+    if not workout:
+        return None
+    workout.status = models.WorkoutStatus.COMPLETED
+    workout.completed_at = dt.datetime.now(dt.timezone.utc)
+    db.commit()
+    db.refresh(workout)
+    return workout
+
+
+def abandon_workout(
+    db: Session, workout_id: int, user_id: int = DEFAULT_USER_ID
+) -> models.Workout | None:
+    """Mark a workout as abandoned."""
+    workout = get_workout(db, workout_id, user_id)
+    if not workout:
+        return None
+    workout.status = models.WorkoutStatus.ABANDONED
+    db.commit()
+    db.refresh(workout)
+    return workout
+
+
+# --- WorkoutSet CRUD ---
+
+
+def add_workout_sets(
+    db: Session,
+    workout_id: int,
+    sets: list[schemas.WorkoutSetCreate],
+    user_id: int = DEFAULT_USER_ID,
+) -> list[models.WorkoutSet]:
+    """Add sets to a workout (from GPT plan)."""
+    workout = get_workout(db, workout_id, user_id)
+    if not workout:
+        return []
+
+    created_sets = []
+    for set_data in sets:
+        ws = models.WorkoutSet(
+            workout_id=workout_id,
+            exercise_type=set_data.exercise_type,
+            set_type=set_data.set_type,
+            set_number=set_data.set_number,
+            target_weight=set_data.target_weight,
+            target_reps=set_data.target_reps,
+        )
+        db.add(ws)
+        created_sets.append(ws)
+
+    db.commit()
+    for ws in created_sets:
+        db.refresh(ws)
+    return created_sets
+
+
+def complete_set(
+    db: Session,
+    set_id: int,
+    actual_weight: float | None = None,
+    actual_reps: int | None = None,
+    user_id: int = DEFAULT_USER_ID,
+) -> models.WorkoutSet | None:
+    """Mark a set as completed."""
+    stmt = (
+        select(models.WorkoutSet)
+        .join(models.Workout)
+        .where(
+            models.WorkoutSet.id == set_id,
+            models.Workout.user_id == user_id,
+        )
+    )
+    ws = db.scalar(stmt)
+    if not ws:
+        return None
+
+    ws.completed = True
+    ws.completed_at = dt.datetime.now(dt.timezone.utc)
+    # Use actual values if provided, otherwise use target values
+    ws.actual_weight = actual_weight if actual_weight is not None else ws.target_weight
+    ws.actual_reps = actual_reps if actual_reps is not None else ws.target_reps
+    db.commit()
+    db.refresh(ws)
+    return ws
+
+
+def update_set(
+    db: Session,
+    set_id: int,
+    target_weight: float | None = None,
+    target_reps: int | None = None,
+    notes: str | None = None,
+    user_id: int = DEFAULT_USER_ID,
+) -> models.WorkoutSet | None:
+    """Update set target values (before completion)."""
+    stmt = (
+        select(models.WorkoutSet)
+        .join(models.Workout)
+        .where(
+            models.WorkoutSet.id == set_id,
+            models.Workout.user_id == user_id,
+        )
+    )
+    ws = db.scalar(stmt)
+    if not ws:
+        return None
+
+    if target_weight is not None:
+        ws.target_weight = target_weight
+    if target_reps is not None:
+        ws.target_reps = target_reps
+    if notes is not None:
+        ws.notes = notes
+    db.commit()
+    db.refresh(ws)
+    return ws
+
+
+# --- ExerciseResult CRUD ---
+
+
+def save_exercise_result(
+    db: Session,
+    workout_id: int,
+    exercise_type: models.ExerciseType,
+    top_set_weight: float | None = None,
+    top_set_reps: int | None = None,
+    rir: int | None = None,
+    notes: str | None = None,
+    user_id: int = DEFAULT_USER_ID,
+) -> models.ExerciseResult | None:
+    """Save exercise result (including RIR) for a workout."""
+    workout = get_workout(db, workout_id, user_id)
+    if not workout:
+        return None
+
+    # Check if result already exists for this exercise
+    stmt = select(models.ExerciseResult).where(
+        models.ExerciseResult.workout_id == workout_id,
+        models.ExerciseResult.exercise_type == exercise_type,
+    )
+    result = db.scalar(stmt)
+
+    if result:
+        # Update existing
+        if top_set_weight is not None:
+            result.top_set_weight = top_set_weight
+        if top_set_reps is not None:
+            result.top_set_reps = top_set_reps
+        if rir is not None:
+            result.rir = rir
+        if notes is not None:
+            result.notes = notes
+    else:
+        # Create new
+        result = models.ExerciseResult(
+            workout_id=workout_id,
+            exercise_type=exercise_type,
+            top_set_weight=top_set_weight,
+            top_set_reps=top_set_reps,
+            rir=rir,
+            notes=notes,
+        )
+        db.add(result)
+
+    db.commit()
+    db.refresh(result)
+
+    # Also update the exercise state
+    update_exercise_from_result(db, exercise_type, top_set_weight, top_set_reps, rir, user_id)
+
+    return result
+
+
+def get_exercise_history(
+    db: Session,
+    exercise_type: models.ExerciseType,
+    user_id: int = DEFAULT_USER_ID,
+    limit: int = 5,
+) -> list[dict]:
+    """Get recent exercise history for GPT context."""
+    stmt = (
+        select(models.ExerciseResult, models.Workout)
+        .join(models.Workout)
+        .where(
+            models.Workout.user_id == user_id,
+            models.ExerciseResult.exercise_type == exercise_type,
+            models.Workout.status == models.WorkoutStatus.COMPLETED,
+        )
+        .order_by(models.Workout.started_at.desc())
+        .limit(limit)
+    )
+    results = db.execute(stmt).all()
+    return [
+        {
+            "date": workout.started_at.strftime("%Y-%m-%d"),
+            "exercise": exercise_type.value,
+            "weight": result.top_set_weight,
+            "reps": result.top_set_reps,
+            "rir": result.rir,
+            "notes": result.notes,
+        }
+        for result, workout in results
+    ]
+
+
+# --- GPT Conversation CRUD ---
+
+
+def save_gpt_conversation(
+    db: Session,
+    user_message: str,
+    gpt_response: str,
+    workout_id: int | None = None,
+    user_id: int = DEFAULT_USER_ID,
+) -> models.GPTConversation:
+    """Save a GPT conversation."""
+    conv = models.GPTConversation(
+        user_id=user_id,
+        workout_id=workout_id,
+        user_message=user_message,
+        gpt_response=gpt_response,
+    )
+    db.add(conv)
+    db.commit()
+    db.refresh(conv)
+    return conv
+
+
+def get_recent_conversations(
+    db: Session,
+    user_id: int = DEFAULT_USER_ID,
+    workout_id: int | None = None,
+    limit: int = 10,
+) -> Sequence[models.GPTConversation]:
+    """Get recent GPT conversations."""
+    stmt = (
+        select(models.GPTConversation)
+        .where(models.GPTConversation.user_id == user_id)
+        .order_by(models.GPTConversation.created_at.desc())
+        .limit(limit)
+    )
+    if workout_id is not None:
+        stmt = stmt.where(models.GPTConversation.workout_id == workout_id)
+    return db.scalars(stmt).all()

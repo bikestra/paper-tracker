@@ -5,7 +5,16 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .models import DiscoverySourceType, PaperSource, PaperStatus, TextbookStatus
+from .models import (
+    DiscoverySourceType,
+    ExerciseType,
+    PaperSource,
+    PaperStatus,
+    SetType,
+    TextbookStatus,
+    WorkoutStatus,
+    WorkoutType,
+)
 
 
 # --- Category schemas ---
@@ -320,6 +329,135 @@ class TextbookReorderRequest(BaseModel):
     status: TextbookStatus
     category_id: Optional[int] = None
     textbook_ids: list[int] = Field(..., min_length=1)
+
+
+# --- Exercise Tracking schemas ---
+
+
+class ExerciseBase(BaseModel):
+    exercise_type: ExerciseType
+    last_top_set_weight: Optional[float] = None
+    last_top_set_reps: Optional[int] = None
+    last_rir: Optional[int] = None
+    notes: Optional[str] = None
+
+
+class Exercise(ExerciseBase):
+    id: int
+    user_id: int
+    created_at: dt.datetime
+    updated_at: Optional[dt.datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class WorkoutSetBase(BaseModel):
+    exercise_type: ExerciseType
+    set_type: SetType
+    set_number: int
+    target_weight: float
+    target_reps: int
+
+
+class WorkoutSetCreate(WorkoutSetBase):
+    pass
+
+
+class WorkoutSetUpdate(BaseModel):
+    actual_weight: Optional[float] = None
+    actual_reps: Optional[int] = None
+    completed: Optional[bool] = None
+    notes: Optional[str] = None
+
+
+class WorkoutSet(WorkoutSetBase):
+    id: int
+    workout_id: int
+    actual_weight: Optional[float] = None
+    actual_reps: Optional[int] = None
+    completed: bool = False
+    completed_at: Optional[dt.datetime] = None
+    notes: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ExerciseResultCreate(BaseModel):
+    exercise_type: ExerciseType
+    top_set_weight: Optional[float] = None
+    top_set_reps: Optional[int] = None
+    rir: Optional[int] = Field(None, ge=0, le=6)  # 0-5, 6 means "5+"
+    notes: Optional[str] = None
+
+
+class ExerciseResult(ExerciseResultCreate):
+    id: int
+    workout_id: int
+    created_at: dt.datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class WorkoutCreate(BaseModel):
+    workout_type: WorkoutType
+    context: Optional[str] = None  # User's pre-workout context
+
+
+class Workout(BaseModel):
+    id: int
+    user_id: int
+    workout_type: WorkoutType
+    status: WorkoutStatus
+    context: Optional[str] = None
+    started_at: dt.datetime
+    completed_at: Optional[dt.datetime] = None
+    notes: Optional[str] = None
+    workout_sets: list[WorkoutSet] = Field(default_factory=list)
+    exercise_results: list[ExerciseResult] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GPTMessageRequest(BaseModel):
+    """Request to send a message to GPT."""
+
+    message: str
+    workout_id: Optional[int] = None
+
+
+class GPTConversation(BaseModel):
+    """GPT conversation response."""
+
+    id: int
+    user_id: int
+    workout_id: Optional[int] = None
+    user_message: str
+    gpt_response: str
+    created_at: dt.datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GPTWorkoutPlanSet(BaseModel):
+    """A single set in the GPT workout plan."""
+
+    type: SetType
+    weight: float
+    reps: int
+
+
+class GPTExercisePlan(BaseModel):
+    """GPT plan for a single exercise."""
+
+    exercise: ExerciseType
+    sets: list[GPTWorkoutPlanSet]
+    notes: Optional[str] = None
+
+
+class GPTWorkoutPlan(BaseModel):
+    """Full workout plan from GPT."""
+
+    exercises: list[GPTExercisePlan]
 
 
 # --- Misc ---

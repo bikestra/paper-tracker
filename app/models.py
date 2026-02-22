@@ -4,9 +4,11 @@ import datetime as dt
 from enum import Enum
 
 from sqlalchemy import (
+    Boolean,
     Column,
     DateTime,
     Enum as SqlEnum,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -64,6 +66,16 @@ class User(Base):
     )
     textbooks: Mapped[list[Textbook]] = relationship(
         "Textbook", back_populates="user", cascade="all, delete-orphan"
+    )
+    # Exercise tracking
+    exercises: Mapped[list[Exercise]] = relationship(
+        "Exercise", back_populates="user", cascade="all, delete-orphan"
+    )
+    workouts: Mapped[list[Workout]] = relationship(
+        "Workout", back_populates="user", cascade="all, delete-orphan"
+    )
+    gpt_conversations: Mapped[list[GPTConversation]] = relationship(
+        "GPTConversation", back_populates="user", cascade="all, delete-orphan"
     )
 
 
@@ -331,4 +343,186 @@ class Textbook(Base):
     category: Mapped[Category | None] = relationship("Category")
     effort_logs: Mapped[list[EffortLog]] = relationship(
         "EffortLog", back_populates="textbook", cascade="all, delete-orphan"
+    )
+
+
+# --- Exercise Tracking Models ---
+
+
+class ExerciseType(str, Enum):
+    """Types of exercises in the workout program."""
+
+    SQUAT = "SQUAT"
+    BENCH_PRESS = "BENCH_PRESS"
+    PENDLAY_ROW = "PENDLAY_ROW"
+    OVERHEAD_PRESS = "OVERHEAD_PRESS"
+    DEADLIFT = "DEADLIFT"
+    PULL_UP = "PULL_UP"
+
+
+class WorkoutType(str, Enum):
+    """Workout A or B."""
+
+    WORKOUT_A = "WORKOUT_A"  # squat/bench/row
+    WORKOUT_B = "WORKOUT_B"  # squat/OHP/deadlift/pull-ups
+
+
+class SetType(str, Enum):
+    """Type of set within an exercise."""
+
+    WARMUP = "WARMUP"
+    TOP_SET = "TOP_SET"
+    BACK_OFF = "BACK_OFF"
+
+
+class WorkoutStatus(str, Enum):
+    """Status of a workout session."""
+
+    PLANNING = "PLANNING"  # Waiting for GPT to generate plan
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"
+    ABANDONED = "ABANDONED"
+
+
+class Exercise(Base):
+    """Tracks per-exercise state (current working weights, last RIR)."""
+
+    __tablename__ = "exercises"
+    __table_args__ = (
+        UniqueConstraint("user_id", "exercise_type", name="uq_exercise_user_type"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True
+    )
+    exercise_type: Mapped[ExerciseType] = mapped_column(
+        SqlEnum(ExerciseType), nullable=False
+    )
+    last_top_set_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_top_set_reps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_rir: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    user: Mapped[User] = relationship("User", back_populates="exercises")
+
+
+class Workout(Base):
+    """A workout session (A or B)."""
+
+    __tablename__ = "workouts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True
+    )
+    workout_type: Mapped[WorkoutType] = mapped_column(
+        SqlEnum(WorkoutType), nullable=False
+    )
+    status: Mapped[WorkoutStatus] = mapped_column(
+        SqlEnum(WorkoutStatus), default=WorkoutStatus.PLANNING, nullable=False
+    )
+    context: Mapped[str | None] = mapped_column(Text, nullable=True)  # User's pre-workout context
+    started_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    completed_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    user: Mapped[User] = relationship("User", back_populates="workouts")
+    workout_sets: Mapped[list[WorkoutSet]] = relationship(
+        "WorkoutSet", back_populates="workout", cascade="all, delete-orphan"
+    )
+    exercise_results: Mapped[list[ExerciseResult]] = relationship(
+        "ExerciseResult", back_populates="workout", cascade="all, delete-orphan"
+    )
+    gpt_conversations: Mapped[list[GPTConversation]] = relationship(
+        "GPTConversation", back_populates="workout", cascade="all, delete-orphan"
+    )
+
+
+class WorkoutSet(Base):
+    """Individual set within a workout (warmup, top set, or back-off)."""
+
+    __tablename__ = "workout_sets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    workout_id: Mapped[int] = mapped_column(
+        ForeignKey("workouts.id"), nullable=False, index=True
+    )
+    exercise_type: Mapped[ExerciseType] = mapped_column(
+        SqlEnum(ExerciseType), nullable=False
+    )
+    set_type: Mapped[SetType] = mapped_column(SqlEnum(SetType), nullable=False)
+    set_number: Mapped[int] = mapped_column(Integer, nullable=False)  # Order within exercise
+    target_weight: Mapped[float] = mapped_column(Float, nullable=False)
+    target_reps: Mapped[int] = mapped_column(Integer, nullable=False)
+    actual_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    actual_reps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    completed_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    workout: Mapped[Workout] = relationship("Workout", back_populates="workout_sets")
+
+
+class ExerciseResult(Base):
+    """Per-exercise result within a workout (stores RIR)."""
+
+    __tablename__ = "exercise_results"
+    __table_args__ = (
+        UniqueConstraint(
+            "workout_id", "exercise_type", name="uq_exercise_result_workout_exercise"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    workout_id: Mapped[int] = mapped_column(
+        ForeignKey("workouts.id"), nullable=False, index=True
+    )
+    exercise_type: Mapped[ExerciseType] = mapped_column(
+        SqlEnum(ExerciseType), nullable=False
+    )
+    top_set_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    top_set_reps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rir: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 0-5+ (store 6 for "5+")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    workout: Mapped[Workout] = relationship("Workout", back_populates="exercise_results")
+
+
+class GPTConversation(Base):
+    """Stored GPT interactions for workout planning."""
+
+    __tablename__ = "gpt_conversations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True
+    )
+    workout_id: Mapped[int | None] = mapped_column(
+        ForeignKey("workouts.id"), nullable=True, index=True
+    )
+    user_message: Mapped[str] = mapped_column(Text, nullable=False)
+    gpt_response: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    user: Mapped[User] = relationship("User", back_populates="gpt_conversations")
+    workout: Mapped[Workout | None] = relationship(
+        "Workout", back_populates="gpt_conversations"
     )
