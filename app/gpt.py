@@ -111,6 +111,7 @@ If any warm-up jump is >15% of T or >30 lb (bench/row) / >40 lb (squat/deadlift)
 
 ## Special Rules
 - Deadlift: ONE top set only
+- Pendlay Row: After warm-ups, perform 3×5 at the same work weight (no back-off). Select weight so Set 1 is RIR 2–3. If form or bar speed degrades in later sets, reduce 5–10 lb for remaining sets.
 - B-day squat: lighter/easier than A-day (but still practiced)
 - Pull-ups: stop with 1–2 reps in reserve to protect elbows/shoulders
 - If the user reports joint pain or technique breakdown, prioritize load reduction and technique notes.

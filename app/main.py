@@ -1985,7 +1985,7 @@ def complete_set_route(
 
     return templates.TemplateResponse(
         "partials/workout_set.html",
-        {"request": request, "set": ws},
+        {"request": request, "s": ws},
     )
 
 
@@ -2006,7 +2006,7 @@ def edit_set_route(
 
     return templates.TemplateResponse(
         "partials/workout_set.html",
-        {"request": request, "set": ws},
+        {"request": request, "s": ws},
     )
 
 

@@ -26,6 +26,25 @@ make fmt
 pytest tests/ -v -m "not slow"
 ```
 
+## Testing
+
+```bash
+make test        # Run all tests
+make test-fast   # Run tests, stop on first failure
+```
+
+**Rules for every change:**
+- Run `make test` before and after changes
+- When adding a route that returns a partial template → add a test in `test_htmx_partials.py`
+- When adding a full-page route → add a test in `test_page_renders.py`
+- When renaming a template variable → grep for all routes rendering that template
+
+**Test files:**
+- `tests/conftest.py` — shared fixtures (`client`, `sample_paper`, `sample_category`, `sample_textbook`, `sample_workout_with_set`)
+- `tests/test_routes.py` — API behavior tests (create, reorder, etc.)
+- `tests/test_htmx_partials.py` — render tests for every HTMX partial route (catches template variable mismatches)
+- `tests/test_page_renders.py` — render tests for every full-page GET route
+
 ## Architecture
 
 FastAPI web application for tracking academic paper reading lists, using SQLAlchemy ORM with SQLite (default) or any SQL database via `DATABASE_URL` env var. Server-rendered HTML with Jinja2 templates, HTMX for interactivity, and SortableJS for drag-and-drop.

@@ -2,50 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-
-from app.db import Base, get_db
-from app.main import app
-from app import models
-
-
-@pytest.fixture
-def client():
-    """Create test client with in-memory database."""
-    # Use StaticPool for SQLite in-memory to allow cross-thread access
-    engine = create_engine(
-        "sqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-
-    # Create default user upfront
-    session = Session()
-    session.add(models.User(id=1, email=None))
-    session.commit()
-    session.close()
-
-    def override_get_db():
-        session = Session()
-        try:
-            yield session
-        finally:
-            session.close()
-
-    app.dependency_overrides[get_db] = override_get_db
-
-    with TestClient(app) as client:
-        yield client
-
-    app.dependency_overrides.clear()
-    engine.dispose()
-
 
 class TestHomePage:
     """Tests for home page."""

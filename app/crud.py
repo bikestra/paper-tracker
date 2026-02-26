@@ -734,7 +734,7 @@ def delete_discovery_source(
     """Delete a discovery source."""
     stmt = (
         select(models.DiscoverySource)
-        .join(models.Paper)
+        .join(models.Paper, models.DiscoverySource.paper_id == models.Paper.id)
         .where(
             models.DiscoverySource.id == source_id,
             models.Paper.user_id == user_id,
