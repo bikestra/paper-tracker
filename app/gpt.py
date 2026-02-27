@@ -112,7 +112,9 @@ If any warm-up jump is >15% of T or >30 lb (bench/row) / >40 lb (squat/deadlift)
 ## Special Rules
 - Deadlift: ONE top set only
 - Pendlay Row: After warm-ups, perform 3×5 at the same work weight (no back-off). Select weight so Set 1 is RIR 2–3. If form or bar speed degrades in later sets, reduce 5–10 lb for remaining sets.
-- B-day squat: lighter/easier than A-day (but still practiced)
+- B-day squat: Use B-day squat history (not A-day) for progression decisions.
+  Typical B-day top set is ~85–90% of the current A-day top set.
+  Apply the same RPE-based progression rules, but only comparing against previous B-day sessions.
 - Pull-ups: stop with 1–2 reps in reserve to protect elbows/shoulders
 - If the user reports joint pain or technique breakdown, prioritize load reduction and technique notes.
 
@@ -142,6 +144,11 @@ When generating a workout plan:
 }
 ```
 
+Valid exercise names (use exactly): SQUAT, BENCH_PRESS, PENDLAY_ROW, OVERHEAD_PRESS, DEADLIFT, PULL_UP
+Valid set types (use exactly): WARMUP, TOP_SET, BACK_OFF
+For pull-ups: use TOP_SET for each set.
+IMPORTANT: Always wrap the JSON in ```json ... ``` code fences.
+
 Always provide practical, actionable notes. When the user reports RIR, use it to update the next workout's weights.
 """
 
@@ -153,10 +160,12 @@ def format_exercise_history(history: list[dict]) -> str:
 
     lines = []
     for h in history:
+        wt = h.get("workout_type", "")
+        day_label = " (A-day)" if wt == "WORKOUT_A" else " (B-day)" if wt == "WORKOUT_B" else ""
         rir_str = f"RIR {h['rir']}" if h.get('rir') is not None else "no RIR reported"
         notes_str = f" - {h['notes']}" if h.get('notes') else ""
         lines.append(
-            f"- {h['date']}: {h['weight']}lb × {h['reps']} ({rir_str}){notes_str}"
+            f"- {h['date']}{day_label}: {h['weight']}lb × {h['reps']} ({rir_str}){notes_str}"
         )
     return "\n".join(lines)
 
@@ -203,7 +212,7 @@ def build_workout_plan_prompt(
 
 async def call_openai(
     messages: list[dict[str, str]],
-    model: str = "gpt-4o-mini",
+    model: str = "gpt-4o",
     max_tokens: int = 2000,
     temperature: float = 0.7,
 ) -> str:
@@ -236,7 +245,7 @@ async def call_openai(
 
 async def stream_openai(
     messages: list[dict[str, str]],
-    model: str = "gpt-4o-mini",
+    model: str = "gpt-4o",
     max_tokens: int = 2000,
     temperature: float = 0.7,
 ) -> AsyncGenerator[str, None]:
@@ -280,22 +289,56 @@ async def stream_openai(
                         continue
 
 
+SET_TYPE_MAP: dict[str, models.SetType] = {
+    "WARMUP": models.SetType.WARMUP,
+    "WARM_UP": models.SetType.WARMUP,
+    "TOP_SET": models.SetType.TOP_SET,
+    "BACK_OFF": models.SetType.BACK_OFF,
+    "BACKOFF": models.SetType.BACK_OFF,
+    "WORK_SET": models.SetType.TOP_SET,
+    "WORKING": models.SetType.TOP_SET,
+}
+
+
+def _extract_json_by_braces(text: str) -> str | None:
+    """Extract a JSON object containing 'exercises' using brace matching."""
+    idx = text.find('"exercises"')
+    if idx == -1:
+        return None
+    # Walk backward to find the opening brace
+    start = text.rfind("{", 0, idx)
+    if start == -1:
+        return None
+    # Walk forward counting braces to find the matching close
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None
+
+
 def parse_workout_plan(response: str) -> schemas.GPTWorkoutPlan | None:
     """Parse workout plan JSON from GPT response."""
-    # Try to find JSON block in the response
+    # Try to find JSON block in code fences first
     json_match = re.search(r'```json\s*(\{.*?\})\s*```', response, re.DOTALL)
-    if not json_match:
-        # Try without code block
-        json_match = re.search(r'\{[^{}]*"exercises"[^{}]*\[.*?\]\s*\}', response, re.DOTALL)
 
-    logger.info(f"JSON match found: {json_match is not None}")
+    if json_match:
+        json_str = json_match.group(1)
+    else:
+        # Fall back to brace-matching extraction
+        json_str = _extract_json_by_braces(response)
 
-    if not json_match:
+    logger.info(f"JSON extraction found: {json_str is not None}")
+
+    if not json_str:
         logger.warning("No JSON block found in GPT response")
         return None
 
     try:
-        json_str = json_match.group(1) if json_match.lastindex else json_match.group(0)
         logger.info(f"Parsing JSON: {json_str[:500]}...")
         data = json.loads(json_str)
         logger.info(f"Parsed data keys: {data.keys()}, exercises count: {len(data.get('exercises', []))}")
@@ -305,9 +348,8 @@ def parse_workout_plan(response: str) -> schemas.GPTWorkoutPlan | None:
             logger.info(f"Processing exercise: {ex_data.get('exercise')}, sets: {len(ex_data.get('sets', []))}")
             sets = []
             for set_data in ex_data.get("sets", []):
-                set_type_str = set_data.get("type", "WARMUP").upper()
-                # Map string to SetType enum
-                set_type = models.SetType[set_type_str]
+                set_type_str = set_data.get("type", "WARMUP").upper().strip()
+                set_type = SET_TYPE_MAP.get(set_type_str, models.SetType.TOP_SET)
                 sets.append(schemas.GPTWorkoutPlanSet(
                     type=set_type,
                     weight=float(set_data["weight"]),

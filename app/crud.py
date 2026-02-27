@@ -1332,6 +1332,7 @@ def get_exercise_history(
             "reps": result.top_set_reps,
             "rir": result.rir,
             "notes": result.notes,
+            "workout_type": workout.workout_type.value,
         }
         for result, workout in results
     ]

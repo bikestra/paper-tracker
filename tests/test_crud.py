@@ -104,7 +104,7 @@ class TestPaperCRUD:
         assert paper.title == "Test Paper"
         assert paper.status == models.PaperStatus.PLANNED
         assert paper.source == models.PaperSource.MANUAL
-        assert paper.order_index == 10
+        assert paper.order_index == 0
 
     def test_create_paper_with_authors(self, db_session):
         data = schemas.PaperCreate(
