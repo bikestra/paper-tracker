@@ -1084,10 +1084,25 @@ def get_last_completed_workout(
 def get_next_workout_type(
     db: Session, user_id: int = DEFAULT_USER_ID
 ) -> models.WorkoutType:
-    """Determine the next workout type based on last completed workout."""
-    last_workout = get_last_completed_workout(db, user_id)
+    """Determine the next workout type based on last completed or abandoned workout.
+
+    Considers both completed and abandoned workouts so that an abandoned
+    session (e.g. from a failed plan generation) still advances the A/B
+    alternation.
+    """
+    stmt = (
+        select(models.Workout)
+        .where(
+            models.Workout.user_id == user_id,
+            models.Workout.status.in_(
+                [models.WorkoutStatus.COMPLETED, models.WorkoutStatus.ABANDONED]
+            ),
+        )
+        .order_by(models.Workout.started_at.desc())
+        .limit(1)
+    )
+    last_workout = db.scalar(stmt)
     if last_workout is None:
-        # No previous workout, start with A
         return models.WorkoutType.WORKOUT_A
     # Alternate: A -> B -> A -> B
     if last_workout.workout_type == models.WorkoutType.WORKOUT_A:
