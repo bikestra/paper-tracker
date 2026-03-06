@@ -1535,6 +1535,11 @@ def start_workout(
     current_user: models.User = Depends(get_current_user),
 ):
     """Start a new workout (auto-selects A or B based on last workout)."""
+    # Abandon any stale PLANNING/IN_PROGRESS workouts so they don't block the UI
+    active = crud.get_active_workout(db, user_id=current_user.id)
+    if active:
+        crud.abandon_workout(db, active.id, user_id=current_user.id)
+
     workout_type = crud.get_next_workout_type(db, user_id=current_user.id)
     workout = crud.create_workout(db, workout_type=workout_type, user_id=current_user.id)
     return RedirectResponse(url=f"/workouts/{workout.id}/plan", status_code=303)
