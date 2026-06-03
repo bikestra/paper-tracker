@@ -1,0 +1,37 @@
+<div id="pending-{{ link.id }}" class="bg-white rounded-lg shadow p-4 flex items-start gap-4">
+    <div class="flex-1">
+        <div class="font-mono text-sm text-gray-700 break-all">{{ link.url_or_id }}</div>
+        <div class="mt-1 text-sm text-red-600">{{ link.error_message }}</div>
+        <div class="mt-2 text-xs text-gray-400">
+            Added {{ link.created_at | pacific | default(link.created_at) }}
+            {% if link.retry_count > 0 %}
+            &middot; {{ link.retry_count }} retries
+            {% if link.last_retry_at %}
+            &middot; Last retry {{ link.last_retry_at | pacific | default(link.last_retry_at) }}
+            {% endif %}
+            {% endif %}
+        </div>
+        {% if retry_failed %}
+        <div class="mt-2 text-sm text-orange-600">Retry failed. ArXiv may still be unavailable.</div>
+        {% endif %}
+    </div>
+    <div class="flex gap-2">
+        <button
+            hx-post="/pending/{{ link.id }}/retry"
+            hx-target="#pending-{{ link.id }}"
+            hx-swap="outerHTML"
+            class="px-3 py-1.5 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
+        >
+            Retry
+        </button>
+        <button
+            hx-delete="/pending/{{ link.id }}"
+            hx-target="#pending-{{ link.id }}"
+            hx-swap="outerHTML"
+            hx-confirm="Delete this pending link?"
+            class="px-3 py-1.5 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+        >
+            Delete
+        </button>
+    </div>
+</div>

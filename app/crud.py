@@ -1315,7 +1315,9 @@ def save_exercise_result(
     db.refresh(result)
 
     # Also update the exercise state
-    update_exercise_from_result(db, exercise_type, top_set_weight, top_set_reps, rir, user_id)
+    update_exercise_from_result(
+        db, exercise_type, top_set_weight, top_set_reps, rir, user_id
+    )
 
     return result
 
@@ -1392,3 +1394,230 @@ def get_recent_conversations(
     if workout_id is not None:
         stmt = stmt.where(models.GPTConversation.workout_id == workout_id)
     return db.scalars(stmt).all()
+
+
+# --- Pending ArXiv Links CRUD ---
+
+
+def create_pending_arxiv_link(
+    db: Session,
+    url_or_id: str,
+    error_message: str,
+    user_id: int = DEFAULT_USER_ID,
+) -> models.PendingArxivLink:
+    """Create a pending arxiv link entry for failed fetches."""
+    link = models.PendingArxivLink(
+        user_id=user_id,
+        url_or_id=url_or_id,
+        error_message=error_message,
+    )
+    db.add(link)
+    db.commit()
+    db.refresh(link)
+    return link
+
+
+def get_pending_arxiv_links(
+    db: Session,
+    user_id: int = DEFAULT_USER_ID,
+) -> Sequence[models.PendingArxivLink]:
+    """Get all pending arxiv links for a user."""
+    stmt = (
+        select(models.PendingArxivLink)
+        .where(models.PendingArxivLink.user_id == user_id)
+        .order_by(models.PendingArxivLink.created_at.desc())
+    )
+    return db.scalars(stmt).all()
+
+
+def delete_pending_arxiv_link(
+    db: Session,
+    link_id: int,
+    user_id: int = DEFAULT_USER_ID,
+) -> bool:
+    """Delete a pending arxiv link."""
+    stmt = select(models.PendingArxivLink).where(
+        models.PendingArxivLink.id == link_id,
+        models.PendingArxivLink.user_id == user_id,
+    )
+    link = db.scalar(stmt)
+    if not link:
+        return False
+    db.delete(link)
+    db.commit()
+    return True
+
+
+def update_pending_link_retry(
+    db: Session,
+    link_id: int,
+    error_message: str,
+    user_id: int = DEFAULT_USER_ID,
+) -> models.PendingArxivLink | None:
+    """Update retry count and error for a pending link."""
+    stmt = select(models.PendingArxivLink).where(
+        models.PendingArxivLink.id == link_id,
+        models.PendingArxivLink.user_id == user_id,
+    )
+    link = db.scalar(stmt)
+    if not link:
+        return None
+    link.retry_count += 1
+    link.error_message = error_message
+    link.last_retry_at = dt.datetime.now(dt.timezone.utc)
+    db.commit()
+    db.refresh(link)
+    return link
+
+
+# --- Paper Duplicate Check ---
+
+
+def get_paper_by_arxiv_id(
+    db: Session,
+    arxiv_id: str,
+    user_id: int = DEFAULT_USER_ID,
+) -> models.Paper | None:
+    """Get a paper by its arxiv_id."""
+    stmt = select(models.Paper).where(
+        models.Paper.user_id == user_id,
+        models.Paper.arxiv_id == arxiv_id,
+    )
+    return db.scalar(stmt)
+
+
+# --- Stats Functions ---
+
+
+def get_papers_added_by_month(
+    db: Session,
+    year: int,
+    user_id: int = DEFAULT_USER_ID,
+) -> dict[int, int]:
+    """Get count of papers added per month for a given year."""
+    stmt = (
+        select(
+            func.strftime("%m", models.Paper.created_at).label("month"),
+            func.count(models.Paper.id),
+        )
+        .where(
+            models.Paper.user_id == user_id,
+            func.strftime("%Y", models.Paper.created_at) == str(year),
+        )
+        .group_by(func.strftime("%m", models.Paper.created_at))
+    )
+    results = db.execute(stmt).all()
+    return {int(month): count for month, count in results}
+
+
+def get_papers_read_by_month(
+    db: Session,
+    year: int,
+    user_id: int = DEFAULT_USER_ID,
+) -> dict[int, int]:
+    """Get count of papers marked as READ per month for a given year."""
+    stmt = (
+        select(
+            func.strftime("%m", models.Paper.read_at).label("month"),
+            func.count(models.Paper.id),
+        )
+        .where(
+            models.Paper.user_id == user_id,
+            models.Paper.read_at.isnot(None),
+            func.strftime("%Y", models.Paper.read_at) == str(year),
+        )
+        .group_by(func.strftime("%m", models.Paper.read_at))
+    )
+    results = db.execute(stmt).all()
+    return {int(month): count for month, count in results}
+
+
+def get_effort_by_month(
+    db: Session,
+    year: int,
+    user_id: int = DEFAULT_USER_ID,
+) -> dict[int, int]:
+    """Get total effort points per month for a given year."""
+    stmt = (
+        select(
+            func.strftime("%m", models.EffortLog.created_at).label("month"),
+            func.sum(models.EffortLog.points),
+        )
+        .where(
+            models.EffortLog.user_id == user_id,
+            func.strftime("%Y", models.EffortLog.created_at) == str(year),
+        )
+        .group_by(func.strftime("%m", models.EffortLog.created_at))
+    )
+    results = db.execute(stmt).all()
+    return {int(month): total or 0 for month, total in results}
+
+
+def get_papers_added_by_day(
+    db: Session,
+    year: int,
+    month: int,
+    user_id: int = DEFAULT_USER_ID,
+) -> dict[int, int]:
+    """Get count of papers added per day for a given month."""
+    stmt = (
+        select(
+            func.strftime("%d", models.Paper.created_at).label("day"),
+            func.count(models.Paper.id),
+        )
+        .where(
+            models.Paper.user_id == user_id,
+            func.strftime("%Y", models.Paper.created_at) == str(year),
+            func.strftime("%m", models.Paper.created_at) == f"{month:02d}",
+        )
+        .group_by(func.strftime("%d", models.Paper.created_at))
+    )
+    results = db.execute(stmt).all()
+    return {int(day): count for day, count in results}
+
+
+def get_papers_read_by_day(
+    db: Session,
+    year: int,
+    month: int,
+    user_id: int = DEFAULT_USER_ID,
+) -> dict[int, int]:
+    """Get count of papers marked as READ per day for a given month."""
+    stmt = (
+        select(
+            func.strftime("%d", models.Paper.read_at).label("day"),
+            func.count(models.Paper.id),
+        )
+        .where(
+            models.Paper.user_id == user_id,
+            models.Paper.read_at.isnot(None),
+            func.strftime("%Y", models.Paper.read_at) == str(year),
+            func.strftime("%m", models.Paper.read_at) == f"{month:02d}",
+        )
+        .group_by(func.strftime("%d", models.Paper.read_at))
+    )
+    results = db.execute(stmt).all()
+    return {int(day): count for day, count in results}
+
+
+def get_effort_by_day(
+    db: Session,
+    year: int,
+    month: int,
+    user_id: int = DEFAULT_USER_ID,
+) -> dict[int, int]:
+    """Get total effort points per day for a given month."""
+    stmt = (
+        select(
+            func.strftime("%d", models.EffortLog.created_at).label("day"),
+            func.sum(models.EffortLog.points),
+        )
+        .where(
+            models.EffortLog.user_id == user_id,
+            func.strftime("%Y", models.EffortLog.created_at) == str(year),
+            func.strftime("%m", models.EffortLog.created_at) == f"{month:02d}",
+        )
+        .group_by(func.strftime("%d", models.EffortLog.created_at))
+    )
+    results = db.execute(stmt).all()
+    return {int(day): total or 0 for day, total in results}

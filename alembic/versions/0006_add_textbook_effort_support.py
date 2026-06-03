@@ -53,7 +53,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("effort_logs", schema=None, recreate="always") as batch_op:
+    with op.batch_alter_table(
+        "effort_logs", schema=None, recreate="always"
+    ) as batch_op:
         batch_op.drop_constraint("fk_effort_logs_textbook_id", type_="foreignkey")
         batch_op.drop_index("ix_effort_logs_textbook_id")
         batch_op.drop_column("textbook_id")

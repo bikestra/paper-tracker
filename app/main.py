@@ -8,7 +8,13 @@ from pathlib import Path
 from typing import Annotated, Optional
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
@@ -33,7 +39,9 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Paper Tracker")
 
 # Mount static files
-app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
+app.mount(
+    "/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static"
+)
 
 
 @app.middleware("http")
@@ -160,7 +168,9 @@ def login_page(request: Request, error: str = ""):
 
     config_warning = None
     if not APP_PASSWORD:
-        config_warning = "APP_PASSWORD environment variable is not set. Authentication is disabled."
+        config_warning = (
+            "APP_PASSWORD environment variable is not set. Authentication is disabled."
+        )
     elif not os.getenv("SESSION_SECRET"):
         config_warning = "SESSION_SECRET environment variable is not set. Sessions won't persist across server restarts."
 
@@ -485,6 +495,18 @@ def fetch_arxiv(
         arxiv_id, version = parse_arxiv_input(url_or_id)
         metadata = fetch_arxiv_metadata(arxiv_id)
 
+        existing_paper = crud.get_paper_by_arxiv_id(
+            db, metadata.arxiv_id, user_id=current_user.id
+        )
+        if existing_paper:
+            return templates.TemplateResponse(
+                "partials/duplicate_paper.html",
+                {
+                    "request": request,
+                    "paper": existing_paper,
+                },
+            )
+
         paper_data = {
             "title": metadata.title,
             "abstract": metadata.abstract,
@@ -515,6 +537,10 @@ def fetch_arxiv(
         )
 
     except ArxivError as e:
+        crud.create_pending_arxiv_link(
+            db, url_or_id=url_or_id, error_message=str(e), user_id=current_user.id
+        )
+        pending_count = len(crud.get_pending_arxiv_links(db, user_id=current_user.id))
         return templates.TemplateResponse(
             "partials/paper_form.html",
             {
@@ -522,6 +548,8 @@ def fetch_arxiv(
                 "paper": None,
                 "categories": categories,
                 "error": str(e),
+                "pending_saved": True,
+                "pending_count": pending_count,
             },
         )
 
@@ -653,6 +681,34 @@ def like_paper(
     if likes is None:
         raise HTTPException(status_code=404, detail="Paper not found")
     return f'<span class="likes-count">{likes}</span>'
+
+
+@app.post("/papers/{paper_id}/move-to-top", response_class=HTMLResponse)
+def move_paper_to_top(
+    request: Request,
+    paper_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Move a paper to the top of its status list."""
+    paper = crud.get_paper(db, paper_id, user_id=current_user.id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    from sqlalchemy import func, select
+
+    stmt = select(func.min(models.Paper.order_index)).where(
+        models.Paper.user_id == current_user.id,
+        models.Paper.status == paper.status,
+    )
+    min_order = db.scalar(stmt)
+    paper.order_index = (min_order - 10) if min_order is not None else 0
+    db.commit()
+
+    return HTMLResponse(
+        content="",
+        headers={"HX-Redirect": f"/?status={paper.status.value}"},
+    )
 
 
 @app.post("/papers/{paper_id}/start-reading", response_class=HTMLResponse)
@@ -791,6 +847,214 @@ def efforts_page(
             "active_page": "efforts",
         },
     )
+
+
+# --- Stats Routes ---
+
+
+@app.get("/stats", response_class=HTMLResponse)
+def stats_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Page showing statistics charts."""
+    import calendar
+    from datetime import date
+
+    today = date.today()
+    current_year = today.year
+    current_month = today.month
+    last_year = current_year - 1
+
+    if current_month == 1:
+        last_month = 12
+        last_month_year = current_year - 1
+    else:
+        last_month = current_month - 1
+        last_month_year = current_year
+
+    papers_added_this_year = crud.get_papers_added_by_month(
+        db, current_year, user_id=current_user.id
+    )
+    papers_added_last_year = crud.get_papers_added_by_month(
+        db, last_year, user_id=current_user.id
+    )
+    papers_read_this_year = crud.get_papers_read_by_month(
+        db, current_year, user_id=current_user.id
+    )
+    papers_read_last_year = crud.get_papers_read_by_month(
+        db, last_year, user_id=current_user.id
+    )
+    effort_this_year = crud.get_effort_by_month(
+        db, current_year, user_id=current_user.id
+    )
+    effort_last_year = crud.get_effort_by_month(db, last_year, user_id=current_user.id)
+
+    days_in_current_month = calendar.monthrange(current_year, current_month)[1]
+    days_in_last_month = calendar.monthrange(last_month_year, last_month)[1]
+
+    papers_added_this_month = crud.get_papers_added_by_day(
+        db, current_year, current_month, user_id=current_user.id
+    )
+    papers_added_last_month = crud.get_papers_added_by_day(
+        db, last_month_year, last_month, user_id=current_user.id
+    )
+    papers_read_this_month = crud.get_papers_read_by_day(
+        db, current_year, current_month, user_id=current_user.id
+    )
+    papers_read_last_month = crud.get_papers_read_by_day(
+        db, last_month_year, last_month, user_id=current_user.id
+    )
+    effort_this_month = crud.get_effort_by_day(
+        db, current_year, current_month, user_id=current_user.id
+    )
+    effort_last_month = crud.get_effort_by_day(
+        db, last_month_year, last_month, user_id=current_user.id
+    )
+
+    month_names = [calendar.month_abbr[i] for i in range(1, 13)]
+    current_month_name = calendar.month_name[current_month]
+    last_month_name = calendar.month_name[last_month]
+
+    return templates.TemplateResponse(
+        "stats.html",
+        {
+            "request": request,
+            "active_page": "stats",
+            "current_year": current_year,
+            "last_year": last_year,
+            "current_month": current_month,
+            "current_month_name": current_month_name,
+            "last_month": last_month,
+            "last_month_name": last_month_name,
+            "last_month_year": last_month_year,
+            "month_names": month_names,
+            "days_in_current_month": days_in_current_month,
+            "days_in_last_month": days_in_last_month,
+            "papers_added_this_year": papers_added_this_year,
+            "papers_added_last_year": papers_added_last_year,
+            "papers_read_this_year": papers_read_this_year,
+            "papers_read_last_year": papers_read_last_year,
+            "effort_this_year": effort_this_year,
+            "effort_last_year": effort_last_year,
+            "papers_added_this_month": papers_added_this_month,
+            "papers_added_last_month": papers_added_last_month,
+            "papers_read_this_month": papers_read_this_month,
+            "papers_read_last_month": papers_read_last_month,
+            "effort_this_month": effort_this_month,
+            "effort_last_month": effort_last_month,
+        },
+    )
+
+
+# --- Pending ArXiv Links Routes ---
+
+
+@app.get("/pending", response_class=HTMLResponse)
+def pending_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Page showing pending arxiv links that failed to fetch."""
+    pending_links = crud.get_pending_arxiv_links(db, user_id=current_user.id)
+    return templates.TemplateResponse(
+        "pending.html",
+        {
+            "request": request,
+            "pending_links": pending_links,
+            "active_page": "pending",
+        },
+    )
+
+
+@app.post("/pending/{link_id}/retry", response_class=HTMLResponse)
+def retry_pending_link(
+    request: Request,
+    link_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Retry fetching a pending arxiv link."""
+    from sqlalchemy import select
+
+    stmt = select(models.PendingArxivLink).where(
+        models.PendingArxivLink.id == link_id,
+        models.PendingArxivLink.user_id == current_user.id,
+    )
+    link = db.scalar(stmt)
+    if not link:
+        raise HTTPException(status_code=404, detail="Pending link not found")
+
+    categories = crud.get_categories(db, user_id=current_user.id)
+
+    try:
+        arxiv_id, version = parse_arxiv_input(link.url_or_id)
+        metadata = fetch_arxiv_metadata(arxiv_id)
+
+        crud.delete_pending_arxiv_link(db, link_id, user_id=current_user.id)
+
+        paper_data = {
+            "title": metadata.title,
+            "abstract": metadata.abstract,
+            "url": metadata.url,
+            "pdf_url": metadata.pdf_url,
+            "source": "ARXIV",
+            "arxiv_id": metadata.arxiv_id,
+            "arxiv_version": metadata.arxiv_version,
+            "arxiv_primary_category": metadata.primary_category,
+            "arxiv_published_at": metadata.published_at.isoformat()
+            if metadata.published_at
+            else "",
+            "arxiv_updated_at": metadata.updated_at.isoformat()
+            if metadata.updated_at
+            else "",
+            "doi": metadata.doi or "",
+            "journal_ref": metadata.journal_ref or "",
+            "authors": [a.name for a in metadata.authors],
+            "status": "PLANNED",
+            "category_id": None,
+            "notes": "",
+            "venue_year": "",
+        }
+
+        return templates.TemplateResponse(
+            "partials/pending_success.html",
+            {
+                "request": request,
+                "paper": paper_data,
+                "categories": categories,
+                "link_id": link_id,
+            },
+        )
+
+    except ArxivError as e:
+        crud.update_pending_link_retry(
+            db, link_id, error_message=str(e), user_id=current_user.id
+        )
+        link = db.scalar(stmt)
+        return templates.TemplateResponse(
+            "partials/pending_row.html",
+            {
+                "request": request,
+                "link": link,
+                "retry_failed": True,
+            },
+        )
+
+
+@app.delete("/pending/{link_id}", response_class=HTMLResponse)
+def delete_pending_link(
+    link_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Delete a pending arxiv link."""
+    deleted = crud.delete_pending_arxiv_link(db, link_id, user_id=current_user.id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Pending link not found")
+    return ""
 
 
 # --- Discovery Source Routes ---
@@ -1541,7 +1805,9 @@ def start_workout(
         crud.abandon_workout(db, active.id, user_id=current_user.id)
 
     workout_type = crud.get_next_workout_type(db, user_id=current_user.id)
-    workout = crud.create_workout(db, workout_type=workout_type, user_id=current_user.id)
+    workout = crud.create_workout(
+        db, workout_type=workout_type, user_id=current_user.id
+    )
     return RedirectResponse(url=f"/workouts/{workout.id}/plan", status_code=303)
 
 
@@ -1569,7 +1835,9 @@ def workout_plan_page(
         )
 
     # Build the full prompt to show the user
-    user_prompt = build_workout_plan_prompt(workout.workout_type, exercise_history, workout.context)
+    user_prompt = build_workout_plan_prompt(
+        workout.workout_type, exercise_history, workout.context
+    )
 
     return templates.TemplateResponse(
         "workout_plan.html",
@@ -1594,7 +1862,11 @@ async def generate_workout_plan(
     current_user: models.User = Depends(get_current_user),
 ):
     """Generate workout plan using GPT."""
-    from .gpt import generate_workout_plan as gpt_generate_plan, get_exercises_for_workout, GPTError
+    from .gpt import (
+        generate_workout_plan as gpt_generate_plan,
+        get_exercises_for_workout,
+        GPTError,
+    )
 
     workout = crud.get_workout(db, workout_id, user_id=current_user.id)
     if not workout:
@@ -1622,7 +1894,8 @@ async def generate_workout_plan(
         # Save the conversation
         crud.save_gpt_conversation(
             db,
-            user_message=f"Generate workout plan for {workout.workout_type.value}" + (f"\nContext: {context}" if context else ""),
+            user_message=f"Generate workout plan for {workout.workout_type.value}"
+            + (f"\nContext: {context}" if context else ""),
             gpt_response=gpt_response,
             workout_id=workout_id,
             user_id=current_user.id,
@@ -1632,15 +1905,19 @@ async def generate_workout_plan(
             # Create workout sets from the plan
             all_sets = []
             for ex_plan in plan.exercises:
-                logger.info(f"Creating sets for {ex_plan.exercise}: {len(ex_plan.sets)} sets")
+                logger.info(
+                    f"Creating sets for {ex_plan.exercise}: {len(ex_plan.sets)} sets"
+                )
                 for i, set_data in enumerate(ex_plan.sets):
-                    all_sets.append(schemas.WorkoutSetCreate(
-                        exercise_type=ex_plan.exercise,
-                        set_type=set_data.type,
-                        set_number=i + 1,
-                        target_weight=set_data.weight,
-                        target_reps=set_data.reps,
-                    ))
+                    all_sets.append(
+                        schemas.WorkoutSetCreate(
+                            exercise_type=ex_plan.exercise,
+                            set_type=set_data.type,
+                            set_number=i + 1,
+                            target_weight=set_data.weight,
+                            target_reps=set_data.reps,
+                        )
+                    )
             logger.info(f"Adding {len(all_sets)} total sets to workout {workout_id}")
             crud.add_workout_sets(db, workout_id, all_sets, user_id=current_user.id)
 
@@ -1688,8 +1965,12 @@ async def stream_workout_plan(
     """Stream workout plan generation via SSE."""
     import json as json_module
     from .gpt import (
-        stream_openai, SYSTEM_PROMPT, build_workout_plan_prompt,
-        get_exercises_for_workout, format_exercise_history, GPTError
+        stream_openai,
+        SYSTEM_PROMPT,
+        build_workout_plan_prompt,
+        get_exercises_for_workout,
+        format_exercise_history,
+        GPTError,
     )
 
     workout = crud.get_workout(db, workout_id, user_id=current_user.id)
@@ -1705,7 +1986,9 @@ async def stream_workout_plan(
         )
 
     # Get previous conversations for this workout
-    conversations = crud.get_recent_conversations(db, workout_id=workout_id, user_id=current_user.id, limit=20)
+    conversations = crud.get_recent_conversations(
+        db, workout_id=workout_id, user_id=current_user.id, limit=20
+    )
 
     # Build messages
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -1757,7 +2040,7 @@ async def stream_workout_plan(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
-        }
+        },
     )
 
 
@@ -1776,7 +2059,9 @@ async def accept_workout_plan(
         raise HTTPException(status_code=404, detail="Workout not found")
 
     # Get the most recent GPT response for this workout
-    conversations = crud.get_recent_conversations(db, workout_id=workout_id, user_id=current_user.id, limit=1)
+    conversations = crud.get_recent_conversations(
+        db, workout_id=workout_id, user_id=current_user.id, limit=1
+    )
     if not conversations:
         return JSONResponse({"error": "No workout plan generated yet"}, status_code=400)
 
@@ -1784,20 +2069,27 @@ async def accept_workout_plan(
     plan = parse_workout_plan(last_response)
 
     if not plan or not plan.exercises:
-        return JSONResponse({"error": "Could not parse workout plan from response. Ask GPT to regenerate the plan."}, status_code=400)
+        return JSONResponse(
+            {
+                "error": "Could not parse workout plan from response. Ask GPT to regenerate the plan."
+            },
+            status_code=400,
+        )
 
     # Create workout sets from the plan
     all_sets = []
     for ex_plan in plan.exercises:
         logger.info(f"Creating sets for {ex_plan.exercise}: {len(ex_plan.sets)} sets")
         for i, set_data in enumerate(ex_plan.sets):
-            all_sets.append(schemas.WorkoutSetCreate(
-                exercise_type=ex_plan.exercise,
-                set_type=set_data.type,
-                set_number=i + 1,
-                target_weight=set_data.weight,
-                target_reps=set_data.reps,
-            ))
+            all_sets.append(
+                schemas.WorkoutSetCreate(
+                    exercise_type=ex_plan.exercise,
+                    set_type=set_data.type,
+                    set_number=i + 1,
+                    target_weight=set_data.weight,
+                    target_reps=set_data.reps,
+                )
+            )
 
     logger.info(f"Adding {len(all_sets)} total sets to workout {workout_id}")
     crud.add_workout_sets(db, workout_id, all_sets, user_id=current_user.id)
@@ -1822,7 +2114,9 @@ async def parse_current_plan(
         raise HTTPException(status_code=404, detail="Workout not found")
 
     # Get the most recent GPT response for this workout
-    conversations = crud.get_recent_conversations(db, workout_id=workout_id, user_id=current_user.id, limit=1)
+    conversations = crud.get_recent_conversations(
+        db, workout_id=workout_id, user_id=current_user.id, limit=1
+    )
     if not conversations:
         return JSONResponse({"plan": None})
 
@@ -1845,7 +2139,7 @@ async def parse_current_plan(
                         "reps": s.reps,
                     }
                     for s in ex.sets
-                ]
+                ],
             }
             for ex in plan.exercises
         ]
@@ -1863,7 +2157,13 @@ async def stream_coach_chat(
 ):
     """Stream chat response from coach via SSE."""
     import json as json_module
-    from .gpt import stream_openai, SYSTEM_PROMPT, format_exercise_history, get_exercises_for_workout, GPTError
+    from .gpt import (
+        stream_openai,
+        SYSTEM_PROMPT,
+        format_exercise_history,
+        get_exercises_for_workout,
+        GPTError,
+    )
 
     workout = crud.get_workout(db, workout_id, user_id=current_user.id)
     if not workout:
@@ -1878,7 +2178,11 @@ async def stream_coach_chat(
         )
 
     # Build context
-    workout_name = "Workout A" if workout.workout_type == models.WorkoutType.WORKOUT_A else "Workout B"
+    workout_name = (
+        "Workout A"
+        if workout.workout_type == models.WorkoutType.WORKOUT_A
+        else "Workout B"
+    )
     context = f"The user is currently doing {workout_name}."
     context += "\n\nRecent exercise history:"
     for ex_type, history in exercise_history.items():
@@ -1886,11 +2190,18 @@ async def stream_coach_chat(
         context += f"\n\n{ex_name}:\n{format_exercise_history(history)}"
 
     # Get recent conversations
-    conversations = crud.get_recent_conversations(db, workout_id=workout_id, user_id=current_user.id, limit=10)
+    conversations = crud.get_recent_conversations(
+        db, workout_id=workout_id, user_id=current_user.id, limit=10
+    )
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.append({"role": "user", "content": f"[Context: {context}]"})
-    messages.append({"role": "assistant", "content": "Got it, I understand the context. How can I help?"})
+    messages.append(
+        {
+            "role": "assistant",
+            "content": "Got it, I understand the context. How can I help?",
+        }
+    )
 
     # Add conversation history
     for conv in reversed(conversations):
@@ -1926,7 +2237,7 @@ async def stream_coach_chat(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
-        }
+        },
     )
 
 
@@ -1984,7 +2295,9 @@ def complete_set_route(
     current_user: models.User = Depends(get_current_user),
 ):
     """Mark a set as completed."""
-    ws = crud.complete_set(db, set_id, actual_weight, actual_reps, user_id=current_user.id)
+    ws = crud.complete_set(
+        db, set_id, actual_weight, actual_reps, user_id=current_user.id
+    )
     if not ws:
         raise HTTPException(status_code=404, detail="Set not found")
 
@@ -2005,7 +2318,9 @@ def edit_set_route(
     current_user: models.User = Depends(get_current_user),
 ):
     """Edit set target values."""
-    ws = crud.update_set(db, set_id, target_weight, target_reps, notes, user_id=current_user.id)
+    ws = crud.update_set(
+        db, set_id, target_weight, target_reps, notes, user_id=current_user.id
+    )
     if not ws:
         raise HTTPException(status_code=404, detail="Set not found")
 
@@ -2015,7 +2330,9 @@ def edit_set_route(
     )
 
 
-@app.post("/workouts/{workout_id}/exercises/{exercise_type}/rir", response_class=HTMLResponse)
+@app.post(
+    "/workouts/{workout_id}/exercises/{exercise_type}/rir", response_class=HTMLResponse
+)
 def save_exercise_rir(
     request: Request,
     workout_id: int,

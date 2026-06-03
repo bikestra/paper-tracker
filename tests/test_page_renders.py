@@ -137,6 +137,24 @@ class TestLoginPage:
         assert response.status_code == 200
 
 
+class TestStatsPage:
+    """Tests for stats page with charts."""
+
+    def test_stats_page(self, client):
+        response = client.get("/stats")
+        assert response.status_code == 200
+        assert b"Statistics" in response.content
+
+
+class TestPendingPage:
+    """Tests for pending arxiv links page."""
+
+    def test_pending_page(self, client):
+        response = client.get("/pending")
+        assert response.status_code == 200
+        assert b"Pending ArXiv Links" in response.content
+
+
 class TestHealthCheck:
     """Tests for health check endpoint."""
 

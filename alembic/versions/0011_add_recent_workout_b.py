@@ -40,7 +40,7 @@ def upgrade() -> None:
             "workout_type": "WORKOUT_B",
             "started_at": workout_date,
             "completed_at": workout_date + timedelta(hours=1),
-        }
+        },
     )
     workout_id = result.fetchone()[0]
 
@@ -49,7 +49,13 @@ def upgrade() -> None:
         {"type": "SQUAT", "weight": 190, "reps": 5, "rir": 6},  # RIR 4+ stored as 6
         {"type": "OVERHEAD_PRESS", "weight": 90, "reps": 5, "rir": 2},
         {"type": "DEADLIFT", "weight": 240, "reps": 5, "rir": 4},
-        {"type": "PULL_UP", "weight": 0, "reps": 13, "rir": 2, "notes": "4/3/3/3 reps"},  # Total reps across sets
+        {
+            "type": "PULL_UP",
+            "weight": 0,
+            "reps": 13,
+            "rir": 2,
+            "notes": "4/3/3/3 reps",
+        },  # Total reps across sets
     ]
 
     for ex in exercises:
@@ -67,7 +73,7 @@ def upgrade() -> None:
                 "rir": ex["rir"],
                 "notes": ex.get("notes"),
                 "created_at": workout_date,
-            }
+            },
         )
 
     # Update current exercise records with latest values
@@ -90,7 +96,7 @@ def upgrade() -> None:
                 "reps": ex["reps"],
                 "rir": ex["rir"],
                 "created_at": now,
-            }
+            },
         )
 
 
@@ -99,7 +105,8 @@ def downgrade() -> None:
     conn = op.get_bind()
 
     # Find and delete the workout we added (most recent WORKOUT_B)
-    conn.execute(sa.text("""
+    conn.execute(
+        sa.text("""
         DELETE FROM exercise_results
         WHERE workout_id IN (
             SELECT id FROM workouts
@@ -107,8 +114,10 @@ def downgrade() -> None:
             ORDER BY started_at DESC
             LIMIT 1
         )
-    """))
-    conn.execute(sa.text("""
+    """)
+    )
+    conn.execute(
+        sa.text("""
         DELETE FROM workouts
         WHERE id IN (
             SELECT id FROM workouts
@@ -116,4 +125,5 @@ def downgrade() -> None:
             ORDER BY started_at DESC
             LIMIT 1
         )
-    """))
+    """)
+    )

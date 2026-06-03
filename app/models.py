@@ -77,6 +77,9 @@ class User(Base):
     gpt_conversations: Mapped[list[GPTConversation]] = relationship(
         "GPTConversation", back_populates="user", cascade="all, delete-orphan"
     )
+    pending_arxiv_links: Mapped[list[PendingArxivLink]] = relationship(
+        "PendingArxivLink", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Category(Base):
@@ -298,6 +301,28 @@ class DiscoverySource(Base):
     )
 
 
+class PendingArxivLink(Base):
+    """Stores arXiv links that failed to fetch, for later retry."""
+
+    __tablename__ = "pending_arxiv_links"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True
+    )
+    url_or_id: Mapped[str] = mapped_column(String(500), nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    last_retry_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    user: Mapped[User] = relationship("User", back_populates="pending_arxiv_links")
+
+
 class TextbookStatus(str, Enum):
     PLANNED = "PLANNED"
     READING = "READING"
@@ -428,7 +453,9 @@ class Workout(Base):
     status: Mapped[WorkoutStatus] = mapped_column(
         SqlEnum(WorkoutStatus), default=WorkoutStatus.PLANNING, nullable=False
     )
-    context: Mapped[str | None] = mapped_column(Text, nullable=True)  # User's pre-workout context
+    context: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )  # User's pre-workout context
     started_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
@@ -462,7 +489,9 @@ class WorkoutSet(Base):
         SqlEnum(ExerciseType), nullable=False
     )
     set_type: Mapped[SetType] = mapped_column(SqlEnum(SetType), nullable=False)
-    set_number: Mapped[int] = mapped_column(Integer, nullable=False)  # Order within exercise
+    set_number: Mapped[int] = mapped_column(
+        Integer, nullable=False
+    )  # Order within exercise
     target_weight: Mapped[float] = mapped_column(Float, nullable=False)
     target_reps: Mapped[int] = mapped_column(Integer, nullable=False)
     actual_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -495,13 +524,17 @@ class ExerciseResult(Base):
     )
     top_set_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
     top_set_reps: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    rir: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 0-5+ (store 6 for "5+")
+    rir: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )  # 0-5+ (store 6 for "5+")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
 
-    workout: Mapped[Workout] = relationship("Workout", back_populates="exercise_results")
+    workout: Mapped[Workout] = relationship(
+        "Workout", back_populates="exercise_results"
+    )
 
 
 class GPTConversation(Base):

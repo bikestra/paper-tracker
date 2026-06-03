@@ -170,3 +170,14 @@ class TestExerciseResultPartials:
             data={"rir": 2},
         )
         assert response.status_code == 200
+
+
+# --- Paper Priority Partials ---
+
+
+class TestPaperPriorityPartials:
+    """Tests for paper priority HTMX partials."""
+
+    def test_move_to_top_renders(self, client, sample_paper):
+        response = client.post(f"/papers/{sample_paper}/move-to-top")
+        assert response.status_code == 200

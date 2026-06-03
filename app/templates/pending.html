@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Pending ArXiv Links - Paper Tracker{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold text-gray-900">Pending ArXiv Links</h1>
+        <span class="text-sm text-gray-500">{{ pending_links | length }} pending</span>
+    </div>
+
+    <p class="text-gray-600">
+        These are arXiv links that failed to fetch. You can retry them when arXiv is available.
+    </p>
+
+    {% if pending_links %}
+    <div class="space-y-4" id="pending-list">
+        {% for link in pending_links %}
+        {% include "partials/pending_row.html" %}
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="bg-gray-50 rounded-lg p-8 text-center">
+        <p class="text-gray-500">No pending links. All arXiv fetches succeeded!</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

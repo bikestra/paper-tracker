@@ -18,26 +18,10 @@ depends_on = None
 def upgrade() -> None:
     # Use batch mode for SQLite/Turso compatibility - this recreates the table
     # which allows us to change paper_id to nullable
-    with op.batch_alter_table(
-        "effort_logs",
-        schema=None,
-        recreate="always",  # Force table recreation for SQLite
-        copy_from=sa.Table(
-            "effort_logs",
-            sa.MetaData(),
-            sa.Column("id", sa.Integer(), primary_key=True),
-            sa.Column("user_id", sa.Integer(), nullable=False),
-            sa.Column("paper_id", sa.Integer(), nullable=False),  # Current: NOT NULL
-            sa.Column("textbook_id", sa.Integer(), nullable=True),
-            sa.Column("points", sa.Integer(), nullable=False),
-            sa.Column("note", sa.Text(), nullable=True),
-            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        ),
-    ) as batch_op:
-        # Make paper_id nullable
-        batch_op.alter_column("paper_id", nullable=True)
+    with op.batch_alter_table("effort_logs", schema=None) as batch_op:
+        batch_op.alter_column("paper_id", existing_type=sa.Integer(), nullable=True)
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("effort_logs", schema=None, recreate="always") as batch_op:
-        batch_op.alter_column("paper_id", nullable=False)
+    with op.batch_alter_table("effort_logs", schema=None) as batch_op:
+        batch_op.alter_column("paper_id", existing_type=sa.Integer(), nullable=False)

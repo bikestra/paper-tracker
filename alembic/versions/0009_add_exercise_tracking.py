@@ -64,7 +64,11 @@ def upgrade() -> None:
         sa.Column(
             "status",
             sa.Enum(
-                "PLANNING", "IN_PROGRESS", "COMPLETED", "ABANDONED", name="workoutstatus"
+                "PLANNING",
+                "IN_PROGRESS",
+                "COMPLETED",
+                "ABANDONED",
+                name="workoutstatus",
             ),
             nullable=False,
             server_default="PLANNING",
@@ -154,7 +158,9 @@ def upgrade() -> None:
             "workout_id", "exercise_type", name="uq_exercise_result_workout_exercise"
         ),
     )
-    op.create_index("ix_exercise_results_workout_id", "exercise_results", ["workout_id"])
+    op.create_index(
+        "ix_exercise_results_workout_id", "exercise_results", ["workout_id"]
+    )
 
     # Create gpt_conversations table
     op.create_table(
@@ -175,7 +181,9 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_gpt_conversations_user_id", "gpt_conversations", ["user_id"])
-    op.create_index("ix_gpt_conversations_workout_id", "gpt_conversations", ["workout_id"])
+    op.create_index(
+        "ix_gpt_conversations_workout_id", "gpt_conversations", ["workout_id"]
+    )
 
 
 def downgrade() -> None:

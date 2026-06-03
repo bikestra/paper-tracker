@@ -38,7 +38,9 @@ WORKOUT_B_EXERCISES = [
 ]
 
 
-def get_exercises_for_workout(workout_type: models.WorkoutType) -> list[models.ExerciseType]:
+def get_exercises_for_workout(
+    workout_type: models.WorkoutType,
+) -> list[models.ExerciseType]:
     """Get the list of exercises for a workout type."""
     if workout_type == models.WorkoutType.WORKOUT_A:
         return WORKOUT_A_EXERCISES
@@ -161,9 +163,11 @@ def format_exercise_history(history: list[dict]) -> str:
     lines = []
     for h in history:
         wt = h.get("workout_type", "")
-        day_label = " (A-day)" if wt == "WORKOUT_A" else " (B-day)" if wt == "WORKOUT_B" else ""
-        rir_str = f"RIR {h['rir']}" if h.get('rir') is not None else "no RIR reported"
-        notes_str = f" - {h['notes']}" if h.get('notes') else ""
+        day_label = (
+            " (A-day)" if wt == "WORKOUT_A" else " (B-day)" if wt == "WORKOUT_B" else ""
+        )
+        rir_str = f"RIR {h['rir']}" if h.get("rir") is not None else "no RIR reported"
+        notes_str = f" - {h['notes']}" if h.get("notes") else ""
         lines.append(
             f"- {h['date']}{day_label}: {h['weight']}lb × {h['reps']} ({rir_str}){notes_str}"
         )
@@ -177,7 +181,11 @@ def build_workout_plan_prompt(
 ) -> str:
     """Build the prompt for generating a workout plan."""
     exercises = get_exercises_for_workout(workout_type)
-    workout_name = "Workout A (Squat/Bench/Row)" if workout_type == models.WorkoutType.WORKOUT_A else "Workout B (Squat/OHP/Deadlift/Pull-ups)"
+    workout_name = (
+        "Workout A (Squat/Bench/Row)"
+        if workout_type == models.WorkoutType.WORKOUT_A
+        else "Workout B (Squat/OHP/Deadlift/Pull-ups)"
+    )
 
     prompt_parts = [
         f"Generate a detailed workout plan for {workout_name}.",
@@ -192,20 +200,24 @@ def build_workout_plan_prompt(
         prompt_parts.append(format_exercise_history(history))
 
     if user_context:
-        prompt_parts.extend([
-            "",
-            "## User Context:",
-            user_context,
-        ])
+        prompt_parts.extend(
+            [
+                "",
+                "## User Context:",
+                user_context,
+            ]
+        )
 
-    prompt_parts.extend([
-        "",
-        "## Instructions:",
-        "1. Based on the history, determine appropriate weights for today",
-        "2. Generate warmup ramps, top set, and back-off sets for each exercise",
-        "3. Include your reasoning and any notes for the user",
-        "4. Return the plan in the JSON format specified in your system prompt",
-    ])
+    prompt_parts.extend(
+        [
+            "",
+            "## Instructions:",
+            "1. Based on the history, determine appropriate weights for today",
+            "2. Generate warmup ramps, top set, and back-off sets for each exercise",
+            "3. Include your reasoning and any notes for the user",
+            "4. Return the plan in the JSON format specified in your system prompt",
+        ]
+    )
 
     return "\n".join(prompt_parts)
 
@@ -237,7 +249,9 @@ async def call_openai(
         )
 
         if response.status_code != 200:
-            raise GPTError(f"OpenAI API error: {response.status_code} - {response.text}")
+            raise GPTError(
+                f"OpenAI API error: {response.status_code} - {response.text}"
+            )
 
         data = response.json()
         return data["choices"][0]["message"]["content"]
@@ -272,7 +286,9 @@ async def stream_openai(
         ) as response:
             if response.status_code != 200:
                 error_text = await response.aread()
-                raise GPTError(f"OpenAI API error: {response.status_code} - {error_text}")
+                raise GPTError(
+                    f"OpenAI API error: {response.status_code} - {error_text}"
+                )
 
             async for line in response.aiter_lines():
                 if line.startswith("data: "):
@@ -324,7 +340,7 @@ def _extract_json_by_braces(text: str) -> str | None:
 def parse_workout_plan(response: str) -> schemas.GPTWorkoutPlan | None:
     """Parse workout plan JSON from GPT response."""
     # Try to find JSON block in code fences first
-    json_match = re.search(r'```json\s*(\{.*?\})\s*```', response, re.DOTALL)
+    json_match = re.search(r"```json\s*(\{.*?\})\s*```", response, re.DOTALL)
 
     if json_match:
         json_str = json_match.group(1)
@@ -341,29 +357,39 @@ def parse_workout_plan(response: str) -> schemas.GPTWorkoutPlan | None:
     try:
         logger.info(f"Parsing JSON: {json_str[:500]}...")
         data = json.loads(json_str)
-        logger.info(f"Parsed data keys: {data.keys()}, exercises count: {len(data.get('exercises', []))}")
+        logger.info(
+            f"Parsed data keys: {data.keys()}, exercises count: {len(data.get('exercises', []))}"
+        )
 
         exercises = []
         for ex_data in data.get("exercises", []):
-            logger.info(f"Processing exercise: {ex_data.get('exercise')}, sets: {len(ex_data.get('sets', []))}")
+            logger.info(
+                f"Processing exercise: {ex_data.get('exercise')}, sets: {len(ex_data.get('sets', []))}"
+            )
             sets = []
             for set_data in ex_data.get("sets", []):
                 set_type_str = set_data.get("type", "WARMUP").upper().strip()
                 set_type = SET_TYPE_MAP.get(set_type_str, models.SetType.TOP_SET)
-                sets.append(schemas.GPTWorkoutPlanSet(
-                    type=set_type,
-                    weight=float(set_data["weight"]),
-                    reps=int(set_data["reps"]),
-                ))
+                sets.append(
+                    schemas.GPTWorkoutPlanSet(
+                        type=set_type,
+                        weight=float(set_data["weight"]),
+                        reps=int(set_data["reps"]),
+                    )
+                )
 
-            ex_type_str = ex_data.get("exercise", "").upper().replace(" ", "_").replace("-", "_")
+            ex_type_str = (
+                ex_data.get("exercise", "").upper().replace(" ", "_").replace("-", "_")
+            )
             logger.info(f"Exercise type string: '{ex_type_str}'")
             exercise_type = models.ExerciseType[ex_type_str]
-            exercises.append(schemas.GPTExercisePlan(
-                exercise=exercise_type,
-                sets=sets,
-                notes=ex_data.get("notes"),
-            ))
+            exercises.append(
+                schemas.GPTExercisePlan(
+                    exercise=exercise_type,
+                    sets=sets,
+                    notes=ex_data.get("notes"),
+                )
+            )
 
         logger.info(f"Total exercises parsed: {len(exercises)}")
         return schemas.GPTWorkoutPlan(exercises=exercises)
@@ -383,7 +409,9 @@ async def generate_workout_plan(
     Returns:
         Tuple of (full GPT response text, parsed workout plan or None)
     """
-    user_prompt = build_workout_plan_prompt(workout_type, exercise_history, user_context)
+    user_prompt = build_workout_plan_prompt(
+        workout_type, exercise_history, user_context
+    )
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -417,7 +445,9 @@ async def chat_with_coach(
 
     # Add context about current workout if available
     if workout_type:
-        workout_name = "Workout A" if workout_type == models.WorkoutType.WORKOUT_A else "Workout B"
+        workout_name = (
+            "Workout A" if workout_type == models.WorkoutType.WORKOUT_A else "Workout B"
+        )
         context = f"The user is currently doing {workout_name}."
 
         if exercise_history:
@@ -427,7 +457,12 @@ async def chat_with_coach(
                 context += f"\n\n{ex_name}:\n{format_exercise_history(history)}"
 
         messages.append({"role": "user", "content": f"[Context: {context}]"})
-        messages.append({"role": "assistant", "content": "Got it, I understand the context. How can I help?"})
+        messages.append(
+            {
+                "role": "assistant",
+                "content": "Got it, I understand the context. How can I help?",
+            }
+        )
 
     # Add conversation history
     if conversation_history:

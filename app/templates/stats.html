@@ -1,0 +1,265 @@
+{% extends "base.html" %}
+
+{% block title %}Stats - Paper Tracker{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <h1 class="text-2xl font-bold text-gray-900">Statistics</h1>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-lg font-semibold mb-4">Papers Added ({{ current_year }} vs {{ last_year }})</h2>
+            <canvas id="papersAddedYearChart"></canvas>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-lg font-semibold mb-4">Papers Read ({{ current_year }} vs {{ last_year }})</h2>
+            <canvas id="papersReadYearChart"></canvas>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-lg font-semibold mb-4">Effort Points ({{ current_year }} vs {{ last_year }})</h2>
+            <canvas id="effortYearChart"></canvas>
+        </div>
+    </div>
+
+    <h2 class="text-xl font-bold text-gray-900 pt-4">Monthly Comparison</h2>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-lg font-semibold mb-4">Papers Added ({{ current_month_name }} vs {{ last_month_name }})</h2>
+            <canvas id="papersAddedMonthChart"></canvas>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-lg font-semibold mb-4">Papers Read ({{ current_month_name }} vs {{ last_month_name }})</h2>
+            <canvas id="papersReadMonthChart"></canvas>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-lg font-semibold mb-4">Effort Points ({{ current_month_name }} vs {{ last_month_name }})</h2>
+            <canvas id="effortMonthChart"></canvas>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+const monthNames = {{ month_names | tojson }};
+
+const papersAddedThisYear = {{ papers_added_this_year | tojson }};
+const papersAddedLastYear = {{ papers_added_last_year | tojson }};
+const papersReadThisYear = {{ papers_read_this_year | tojson }};
+const papersReadLastYear = {{ papers_read_last_year | tojson }};
+const effortThisYear = {{ effort_this_year | tojson }};
+const effortLastYear = {{ effort_last_year | tojson }};
+
+const papersAddedThisMonth = {{ papers_added_this_month | tojson }};
+const papersAddedLastMonth = {{ papers_added_last_month | tojson }};
+const papersReadThisMonth = {{ papers_read_this_month | tojson }};
+const papersReadLastMonth = {{ papers_read_last_month | tojson }};
+const effortThisMonth = {{ effort_this_month | tojson }};
+const effortLastMonth = {{ effort_last_month | tojson }};
+
+const daysInCurrentMonth = {{ days_in_current_month }};
+const daysInLastMonth = {{ days_in_last_month }};
+
+function monthDataToArray(data) {
+    return Array.from({length: 12}, (_, i) => data[i + 1] || 0);
+}
+
+function dayDataToArray(data, days) {
+    return Array.from({length: days}, (_, i) => data[i + 1] || 0);
+}
+
+const chartColors = {
+    thisYear: {
+        bg: 'rgba(59, 130, 246, 0.5)',
+        border: 'rgb(59, 130, 246)'
+    },
+    lastYear: {
+        bg: 'rgba(156, 163, 175, 0.5)',
+        border: 'rgb(156, 163, 175)'
+    }
+};
+
+new Chart(document.getElementById('papersAddedYearChart'), {
+    type: 'bar',
+    data: {
+        labels: monthNames,
+        datasets: [
+            {
+                label: '{{ current_year }}',
+                data: monthDataToArray(papersAddedThisYear),
+                backgroundColor: chartColors.thisYear.bg,
+                borderColor: chartColors.thisYear.border,
+                borderWidth: 1
+            },
+            {
+                label: '{{ last_year }}',
+                data: monthDataToArray(papersAddedLastYear),
+                backgroundColor: chartColors.lastYear.bg,
+                borderColor: chartColors.lastYear.border,
+                borderWidth: 1
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        scales: {
+            y: { beginAtZero: true, ticks: { stepSize: 1 } }
+        }
+    }
+});
+
+new Chart(document.getElementById('papersReadYearChart'), {
+    type: 'bar',
+    data: {
+        labels: monthNames,
+        datasets: [
+            {
+                label: '{{ current_year }}',
+                data: monthDataToArray(papersReadThisYear),
+                backgroundColor: chartColors.thisYear.bg,
+                borderColor: chartColors.thisYear.border,
+                borderWidth: 1
+            },
+            {
+                label: '{{ last_year }}',
+                data: monthDataToArray(papersReadLastYear),
+                backgroundColor: chartColors.lastYear.bg,
+                borderColor: chartColors.lastYear.border,
+                borderWidth: 1
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        scales: {
+            y: { beginAtZero: true, ticks: { stepSize: 1 } }
+        }
+    }
+});
+
+new Chart(document.getElementById('effortYearChart'), {
+    type: 'bar',
+    data: {
+        labels: monthNames,
+        datasets: [
+            {
+                label: '{{ current_year }}',
+                data: monthDataToArray(effortThisYear),
+                backgroundColor: chartColors.thisYear.bg,
+                borderColor: chartColors.thisYear.border,
+                borderWidth: 1
+            },
+            {
+                label: '{{ last_year }}',
+                data: monthDataToArray(effortLastYear),
+                backgroundColor: chartColors.lastYear.bg,
+                borderColor: chartColors.lastYear.border,
+                borderWidth: 1
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        scales: {
+            y: { beginAtZero: true }
+        }
+    }
+});
+
+const maxDays = Math.max(daysInCurrentMonth, daysInLastMonth);
+const dayLabels = Array.from({length: maxDays}, (_, i) => i + 1);
+
+new Chart(document.getElementById('papersAddedMonthChart'), {
+    type: 'bar',
+    data: {
+        labels: dayLabels,
+        datasets: [
+            {
+                label: '{{ current_month_name }}',
+                data: dayDataToArray(papersAddedThisMonth, maxDays),
+                backgroundColor: chartColors.thisYear.bg,
+                borderColor: chartColors.thisYear.border,
+                borderWidth: 1
+            },
+            {
+                label: '{{ last_month_name }}',
+                data: dayDataToArray(papersAddedLastMonth, maxDays),
+                backgroundColor: chartColors.lastYear.bg,
+                borderColor: chartColors.lastYear.border,
+                borderWidth: 1
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        scales: {
+            y: { beginAtZero: true, ticks: { stepSize: 1 } }
+        }
+    }
+});
+
+new Chart(document.getElementById('papersReadMonthChart'), {
+    type: 'bar',
+    data: {
+        labels: dayLabels,
+        datasets: [
+            {
+                label: '{{ current_month_name }}',
+                data: dayDataToArray(papersReadThisMonth, maxDays),
+                backgroundColor: chartColors.thisYear.bg,
+                borderColor: chartColors.thisYear.border,
+                borderWidth: 1
+            },
+            {
+                label: '{{ last_month_name }}',
+                data: dayDataToArray(papersReadLastMonth, maxDays),
+                backgroundColor: chartColors.lastYear.bg,
+                borderColor: chartColors.lastYear.border,
+                borderWidth: 1
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        scales: {
+            y: { beginAtZero: true, ticks: { stepSize: 1 } }
+        }
+    }
+});
+
+new Chart(document.getElementById('effortMonthChart'), {
+    type: 'bar',
+    data: {
+        labels: dayLabels,
+        datasets: [
+            {
+                label: '{{ current_month_name }}',
+                data: dayDataToArray(effortThisMonth, maxDays),
+                backgroundColor: chartColors.thisYear.bg,
+                borderColor: chartColors.thisYear.border,
+                borderWidth: 1
+            },
+            {
+                label: '{{ last_month_name }}',
+                data: dayDataToArray(effortLastMonth, maxDays),
+                backgroundColor: chartColors.lastYear.bg,
+                borderColor: chartColors.lastYear.border,
+                borderWidth: 1
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        scales: {
+            y: { beginAtZero: true }
+        }
+    }
+});
+</script>
+{% endblock %}

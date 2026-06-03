@@ -1,0 +1,46 @@
+<div id="pending-{{ link_id }}" class="bg-green-50 rounded-lg shadow p-4">
+    <div class="flex items-center gap-2 text-green-700 font-medium mb-3">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+        </svg>
+        Successfully fetched: {{ paper.title }}
+    </div>
+
+    <form action="/papers" method="POST" class="space-y-4">
+        <input type="hidden" name="title" value="{{ paper.title }}">
+        <input type="hidden" name="abstract" value="{{ paper.abstract }}">
+        <input type="hidden" name="url" value="{{ paper.url }}">
+        <input type="hidden" name="pdf_url" value="{{ paper.pdf_url }}">
+        <input type="hidden" name="source" value="{{ paper.source }}">
+        <input type="hidden" name="arxiv_id" value="{{ paper.arxiv_id }}">
+        <input type="hidden" name="arxiv_version" value="{{ paper.arxiv_version }}">
+        <input type="hidden" name="arxiv_primary_category" value="{{ paper.arxiv_primary_category }}">
+        <input type="hidden" name="arxiv_published_at" value="{{ paper.arxiv_published_at }}">
+        <input type="hidden" name="arxiv_updated_at" value="{{ paper.arxiv_updated_at }}">
+        <input type="hidden" name="doi" value="{{ paper.doi }}">
+        <input type="hidden" name="journal_ref" value="{{ paper.journal_ref }}">
+        <input type="hidden" name="authors" value="{{ paper.authors | join(', ') }}">
+        <input type="hidden" name="status" value="{{ paper.status }}">
+        <input type="hidden" name="notes" value="">
+        <input type="hidden" name="venue_year" value="">
+
+        <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Category</label>
+            <select name="category_id" class="w-full rounded border-gray-300 text-sm">
+                <option value="">No category</option>
+                {% for cat in categories %}
+                <option value="{{ cat.id }}">{{ cat.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="flex gap-2">
+            <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+                Add Paper
+            </button>
+            <a href="/add" class="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
+                Edit Details
+            </a>
+        </div>
+    </form>
+</div>

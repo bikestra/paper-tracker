@@ -28,12 +28,20 @@ def upgrade() -> None:
     user_id = 1
 
     # Check if user exists
-    result = conn.execute(sa.text("SELECT id FROM users WHERE id = :id"), {"id": user_id})
+    result = conn.execute(
+        sa.text("SELECT id FROM users WHERE id = :id"), {"id": user_id}
+    )
     if not result.fetchone():
         # Create default user if not exists
         conn.execute(
-            sa.text("INSERT INTO users (id, email, created_at) VALUES (:id, :email, :created_at)"),
-            {"id": user_id, "email": "default@local", "created_at": datetime.now(timezone.utc)}
+            sa.text(
+                "INSERT INTO users (id, email, created_at) VALUES (:id, :email, :created_at)"
+            ),
+            {
+                "id": user_id,
+                "email": "default@local",
+                "created_at": datetime.now(timezone.utc),
+            },
         )
 
     # Historical workout data based on ChatGPT conversation
@@ -48,7 +56,12 @@ def upgrade() -> None:
             "type": "WORKOUT_B",
             "date": now - timedelta(days=3),
             "exercises": [
-                {"type": "SQUAT", "weight": 185, "reps": 5, "rir": 3},  # Light squat day
+                {
+                    "type": "SQUAT",
+                    "weight": 185,
+                    "reps": 5,
+                    "rir": 3,
+                },  # Light squat day
                 {"type": "OVERHEAD_PRESS", "weight": 105, "reps": 5, "rir": 2},
                 {"type": "DEADLIFT", "weight": 245, "reps": 5, "rir": 2},
             ],
@@ -119,7 +132,7 @@ def upgrade() -> None:
                 "workout_type": workout_data["type"],
                 "started_at": workout_data["date"],
                 "completed_at": workout_data["date"] + timedelta(hours=1),
-            }
+            },
         )
         workout_id = result.fetchone()[0]
 
@@ -138,7 +151,7 @@ def upgrade() -> None:
                     "reps": ex["reps"],
                     "rir": ex["rir"],
                     "created_at": workout_data["date"],
-                }
+                },
             )
 
     # Set current exercise records (latest weights)
@@ -170,7 +183,7 @@ def upgrade() -> None:
                 "reps": ex["reps"],
                 "rir": ex["rir"],
                 "created_at": now,
-            }
+            },
         )
 
 
@@ -179,9 +192,11 @@ def downgrade() -> None:
     conn = op.get_bind()
 
     # Delete exercise results, workouts, and exercises for user 1
-    conn.execute(sa.text("""
+    conn.execute(
+        sa.text("""
         DELETE FROM exercise_results
         WHERE workout_id IN (SELECT id FROM workouts WHERE user_id = 1)
-    """))
+    """)
+    )
     conn.execute(sa.text("DELETE FROM workouts WHERE user_id = 1"))
     conn.execute(sa.text("DELETE FROM exercises WHERE user_id = 1"))

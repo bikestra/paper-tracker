@@ -1,0 +1,61 @@
+<div class="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+    <div class="flex items-center gap-2 text-yellow-700 font-medium mb-4">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+        </svg>
+        This paper already exists in your library
+    </div>
+
+    <div class="bg-white rounded-lg p-4 mb-4">
+        <h3 class="font-semibold text-gray-900">{{ paper.title }}</h3>
+        <div class="mt-1 text-sm text-gray-500">
+            Status: <span class="font-medium
+                {% if paper.status.value == 'PLANNED' %}text-blue-600
+                {% elif paper.status.value == 'READING' %}text-yellow-600
+                {% else %}text-green-600{% endif %}">
+                {{ paper.status.value }}
+            </span>
+            &middot; {{ paper.likes }} likes
+            {% if paper.category %}
+            &middot; {{ paper.category.name }}
+            {% endif %}
+        </div>
+        {% if paper.authors %}
+        <div class="mt-2 text-sm text-gray-600">
+            {{ paper.authors | map(attribute='name') | list | join(', ') }}
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="flex flex-wrap gap-3">
+        <button
+            hx-post="/papers/{{ paper.id }}/like"
+            hx-swap="none"
+            hx-on::after-request="this.textContent = 'Liked!'; this.disabled = true; this.classList.add('bg-green-100', 'text-green-700'); this.classList.remove('bg-blue-500', 'text-white', 'hover:bg-blue-600');"
+            class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+        >
+            +1 Like (currently {{ paper.likes }})
+        </button>
+
+        <button
+            hx-post="/papers/{{ paper.id }}/move-to-top"
+            class="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors"
+        >
+            Move to Top Priority
+        </button>
+
+        <a
+            href="/papers/{{ paper.id }}/edit"
+            class="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors"
+        >
+            View/Edit Paper
+        </a>
+
+        <a
+            href="/?status={{ paper.status.value }}"
+            class="px-4 py-2 text-gray-600 hover:text-gray-900 transition-colors"
+        >
+            Go to Paper List
+        </a>
+    </div>
+</div>
