@@ -1495,16 +1495,18 @@ def get_papers_added_by_month(
     user_id: int = DEFAULT_USER_ID,
 ) -> dict[int, int]:
     """Get count of papers added per month for a given year."""
+    from sqlalchemy import extract
+
     stmt = (
         select(
-            func.strftime("%m", models.Paper.created_at).label("month"),
+            extract("month", models.Paper.created_at).label("month"),
             func.count(models.Paper.id),
         )
         .where(
             models.Paper.user_id == user_id,
-            func.strftime("%Y", models.Paper.created_at) == str(year),
+            extract("year", models.Paper.created_at) == year,
         )
-        .group_by(func.strftime("%m", models.Paper.created_at))
+        .group_by(extract("month", models.Paper.created_at))
     )
     results = db.execute(stmt).all()
     return {int(month): count for month, count in results}
@@ -1516,17 +1518,19 @@ def get_papers_read_by_month(
     user_id: int = DEFAULT_USER_ID,
 ) -> dict[int, int]:
     """Get count of papers marked as READ per month for a given year."""
+    from sqlalchemy import extract
+
     stmt = (
         select(
-            func.strftime("%m", models.Paper.read_at).label("month"),
+            extract("month", models.Paper.read_at).label("month"),
             func.count(models.Paper.id),
         )
         .where(
             models.Paper.user_id == user_id,
             models.Paper.read_at.isnot(None),
-            func.strftime("%Y", models.Paper.read_at) == str(year),
+            extract("year", models.Paper.read_at) == year,
         )
-        .group_by(func.strftime("%m", models.Paper.read_at))
+        .group_by(extract("month", models.Paper.read_at))
     )
     results = db.execute(stmt).all()
     return {int(month): count for month, count in results}
@@ -1538,16 +1542,18 @@ def get_effort_by_month(
     user_id: int = DEFAULT_USER_ID,
 ) -> dict[int, int]:
     """Get total effort points per month for a given year."""
+    from sqlalchemy import extract
+
     stmt = (
         select(
-            func.strftime("%m", models.EffortLog.created_at).label("month"),
+            extract("month", models.EffortLog.created_at).label("month"),
             func.sum(models.EffortLog.points),
         )
         .where(
             models.EffortLog.user_id == user_id,
-            func.strftime("%Y", models.EffortLog.created_at) == str(year),
+            extract("year", models.EffortLog.created_at) == year,
         )
-        .group_by(func.strftime("%m", models.EffortLog.created_at))
+        .group_by(extract("month", models.EffortLog.created_at))
     )
     results = db.execute(stmt).all()
     return {int(month): total or 0 for month, total in results}
@@ -1560,17 +1566,19 @@ def get_papers_added_by_day(
     user_id: int = DEFAULT_USER_ID,
 ) -> dict[int, int]:
     """Get count of papers added per day for a given month."""
+    from sqlalchemy import extract
+
     stmt = (
         select(
-            func.strftime("%d", models.Paper.created_at).label("day"),
+            extract("day", models.Paper.created_at).label("day"),
             func.count(models.Paper.id),
         )
         .where(
             models.Paper.user_id == user_id,
-            func.strftime("%Y", models.Paper.created_at) == str(year),
-            func.strftime("%m", models.Paper.created_at) == f"{month:02d}",
+            extract("year", models.Paper.created_at) == year,
+            extract("month", models.Paper.created_at) == month,
         )
-        .group_by(func.strftime("%d", models.Paper.created_at))
+        .group_by(extract("day", models.Paper.created_at))
     )
     results = db.execute(stmt).all()
     return {int(day): count for day, count in results}
@@ -1583,18 +1591,20 @@ def get_papers_read_by_day(
     user_id: int = DEFAULT_USER_ID,
 ) -> dict[int, int]:
     """Get count of papers marked as READ per day for a given month."""
+    from sqlalchemy import extract
+
     stmt = (
         select(
-            func.strftime("%d", models.Paper.read_at).label("day"),
+            extract("day", models.Paper.read_at).label("day"),
             func.count(models.Paper.id),
         )
         .where(
             models.Paper.user_id == user_id,
             models.Paper.read_at.isnot(None),
-            func.strftime("%Y", models.Paper.read_at) == str(year),
-            func.strftime("%m", models.Paper.read_at) == f"{month:02d}",
+            extract("year", models.Paper.read_at) == year,
+            extract("month", models.Paper.read_at) == month,
         )
-        .group_by(func.strftime("%d", models.Paper.read_at))
+        .group_by(extract("day", models.Paper.read_at))
     )
     results = db.execute(stmt).all()
     return {int(day): count for day, count in results}
@@ -1607,17 +1617,19 @@ def get_effort_by_day(
     user_id: int = DEFAULT_USER_ID,
 ) -> dict[int, int]:
     """Get total effort points per day for a given month."""
+    from sqlalchemy import extract
+
     stmt = (
         select(
-            func.strftime("%d", models.EffortLog.created_at).label("day"),
+            extract("day", models.EffortLog.created_at).label("day"),
             func.sum(models.EffortLog.points),
         )
         .where(
             models.EffortLog.user_id == user_id,
-            func.strftime("%Y", models.EffortLog.created_at) == str(year),
-            func.strftime("%m", models.EffortLog.created_at) == f"{month:02d}",
+            extract("year", models.EffortLog.created_at) == year,
+            extract("month", models.EffortLog.created_at) == month,
         )
-        .group_by(func.strftime("%d", models.EffortLog.created_at))
+        .group_by(extract("day", models.EffortLog.created_at))
     )
     results = db.execute(stmt).all()
     return {int(day): total or 0 for day, total in results}
