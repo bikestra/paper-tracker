@@ -926,6 +926,7 @@ def stats_page(
             "last_year": last_year,
             "current_month": current_month,
             "current_month_name": current_month_name,
+            "current_day": today.day,
             "last_month": last_month,
             "last_month_name": last_month_name,
             "last_month_year": last_month_year,
