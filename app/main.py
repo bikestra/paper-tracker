@@ -557,13 +557,37 @@ def _fetch_openreview(request, url_or_id, db, current_user, categories):
             db, url_or_id=url_or_id, error_message=str(e), user_id=current_user.id
         )
         pending_count = len(crud.get_pending_arxiv_links(db, user_id=current_user.id))
+
+        openreview_id = parse_openreview_input(url_or_id)
+        partial_paper = {
+            "title": "",
+            "abstract": "",
+            "url": f"https://openreview.net/forum?id={openreview_id}",
+            "pdf_url": f"https://openreview.net/pdf?id={openreview_id}",
+            "source": "OPENREVIEW",
+            "openreview_id": openreview_id,
+            "openreview_venue": "",
+            "authors": [],
+            "status": "PLANNED",
+            "category_id": None,
+            "notes": "",
+            "venue_year": "",
+            "arxiv_id": "",
+            "arxiv_version": "",
+            "arxiv_primary_category": "",
+            "arxiv_published_at": "",
+            "arxiv_updated_at": "",
+            "doi": "",
+            "journal_ref": "",
+        }
+
         return templates.TemplateResponse(
             "partials/paper_form.html",
             {
                 "request": request,
-                "paper": None,
+                "paper": partial_paper,
                 "categories": categories,
-                "error": str(e),
+                "error": "Could not fetch from OpenReview (API blocked). Enter details manually below.",
                 "pending_saved": True,
                 "pending_count": pending_count,
             },
