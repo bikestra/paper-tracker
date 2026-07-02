@@ -32,6 +32,7 @@ class PaperStatus(str, Enum):
 
 class PaperSource(str, Enum):
     ARXIV = "ARXIV"
+    OPENREVIEW = "OPENREVIEW"
     URL = "URL"
     MANUAL = "MANUAL"
 
@@ -142,6 +143,10 @@ class Paper(Base):
     arxiv_updated_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+    # OpenReview-specific fields
+    openreview_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    openreview_venue: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     # Additional metadata
     doi: Mapped[str | None] = mapped_column(String(100), nullable=True)

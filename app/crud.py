@@ -331,6 +331,8 @@ def create_paper(
         arxiv_primary_category=data.arxiv_primary_category,
         arxiv_published_at=data.arxiv_published_at,
         arxiv_updated_at=data.arxiv_updated_at,
+        openreview_id=data.openreview_id,
+        openreview_venue=data.openreview_venue,
         doi=data.doi,
         journal_ref=data.journal_ref,
         citation_key=data.citation_key,
@@ -1482,6 +1484,19 @@ def get_paper_by_arxiv_id(
     stmt = select(models.Paper).where(
         models.Paper.user_id == user_id,
         models.Paper.arxiv_id == arxiv_id,
+    )
+    return db.scalar(stmt)
+
+
+def get_paper_by_openreview_id(
+    db: Session,
+    openreview_id: str,
+    user_id: int = DEFAULT_USER_ID,
+) -> models.Paper | None:
+    """Get a paper by its openreview_id."""
+    stmt = select(models.Paper).where(
+        models.Paper.user_id == user_id,
+        models.Paper.openreview_id == openreview_id,
     )
     return db.scalar(stmt)
 

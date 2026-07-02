@@ -23,6 +23,11 @@ from sqlalchemy.orm import Session
 
 from . import crud, models, schemas
 from .arxiv import ArxivError, fetch_arxiv_metadata, parse_arxiv_input
+from .openreview import (
+    OpenReviewError,
+    fetch_openreview_metadata,
+    parse_openreview_input,
+)
 from .auth import (
     NotAuthenticatedException,
     SESSION_COOKIE,
@@ -481,16 +486,92 @@ def categories_partial(
 # --- Paper Actions ---
 
 
+def _is_openreview_input(url_or_id: str) -> bool:
+    """Check if input looks like an OpenReview URL or ID."""
+    return "openreview.net" in url_or_id.lower()
+
+
 @app.post("/papers/fetch-arxiv", response_class=HTMLResponse)
-def fetch_arxiv(
+def fetch_paper_metadata(
     request: Request,
     url_or_id: Annotated[str, Form()],
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """Fetch arXiv metadata and return populated form."""
+    """Fetch paper metadata from arXiv or OpenReview and return populated form."""
     categories = crud.get_categories(db, user_id=current_user.id)
 
+    if _is_openreview_input(url_or_id):
+        return _fetch_openreview(request, url_or_id, db, current_user, categories)
+    else:
+        return _fetch_arxiv(request, url_or_id, db, current_user, categories)
+
+
+def _fetch_openreview(request, url_or_id, db, current_user, categories):
+    """Fetch metadata from OpenReview."""
+    try:
+        openreview_id = parse_openreview_input(url_or_id)
+        metadata = fetch_openreview_metadata(openreview_id)
+
+        existing_paper = crud.get_paper_by_openreview_id(
+            db, metadata.openreview_id, user_id=current_user.id
+        )
+        if existing_paper:
+            return templates.TemplateResponse(
+                "partials/duplicate_paper.html",
+                {
+                    "request": request,
+                    "paper": existing_paper,
+                },
+            )
+
+        paper_data = {
+            "title": metadata.title,
+            "abstract": metadata.abstract,
+            "url": metadata.url,
+            "pdf_url": metadata.pdf_url,
+            "source": "OPENREVIEW",
+            "openreview_id": metadata.openreview_id,
+            "openreview_venue": metadata.venue or "",
+            "authors": metadata.authors,
+            "status": "PLANNED",
+            "category_id": None,
+            "notes": "",
+            "venue_year": metadata.venue or "",
+            "arxiv_id": "",
+            "arxiv_version": "",
+            "arxiv_primary_category": "",
+            "arxiv_published_at": "",
+            "arxiv_updated_at": "",
+            "doi": "",
+            "journal_ref": "",
+        }
+
+        return templates.TemplateResponse(
+            "partials/paper_form.html",
+            {"request": request, "paper": paper_data, "categories": categories},
+        )
+
+    except OpenReviewError as e:
+        crud.create_pending_arxiv_link(
+            db, url_or_id=url_or_id, error_message=str(e), user_id=current_user.id
+        )
+        pending_count = len(crud.get_pending_arxiv_links(db, user_id=current_user.id))
+        return templates.TemplateResponse(
+            "partials/paper_form.html",
+            {
+                "request": request,
+                "paper": None,
+                "categories": categories,
+                "error": str(e),
+                "pending_saved": True,
+                "pending_count": pending_count,
+            },
+        )
+
+
+def _fetch_arxiv(request, url_or_id, db, current_user, categories):
+    """Fetch metadata from arXiv."""
     try:
         arxiv_id, version = parse_arxiv_input(url_or_id)
         metadata = fetch_arxiv_metadata(arxiv_id)
@@ -529,6 +610,8 @@ def fetch_arxiv(
             "category_id": None,
             "notes": "",
             "venue_year": "",
+            "openreview_id": "",
+            "openreview_venue": "",
         }
 
         return templates.TemplateResponse(
@@ -572,6 +655,8 @@ def create_paper(
     arxiv_primary_category: Annotated[str, Form()] = "",
     arxiv_published_at: Annotated[str, Form()] = "",
     arxiv_updated_at: Annotated[str, Form()] = "",
+    openreview_id: Annotated[str, Form()] = "",
+    openreview_venue: Annotated[str, Form()] = "",
     doi: Annotated[str, Form()] = "",
     journal_ref: Annotated[str, Form()] = "",
     db: Session = Depends(get_db),
@@ -624,6 +709,8 @@ def create_paper(
             arxiv_primary_category=arxiv_primary_category or None,
             arxiv_published_at=parse_dt(arxiv_published_at),
             arxiv_updated_at=parse_dt(arxiv_updated_at),
+            openreview_id=openreview_id or None,
+            openreview_venue=openreview_venue or None,
             doi=doi or None,
             journal_ref=journal_ref or None,
         )

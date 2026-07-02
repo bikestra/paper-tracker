@@ -101,6 +101,10 @@ class PaperCreate(PaperBase):
     journal_ref: Optional[str] = None
     citation_key: Optional[str] = None
 
+    # OpenReview fields (populated from fetch)
+    openreview_id: Optional[str] = None
+    openreview_venue: Optional[str] = None
+
 
 class PaperUpdate(BaseModel):
     """Schema for updating a paper. All fields optional."""
@@ -125,6 +129,10 @@ class PaperUpdate(BaseModel):
     journal_ref: Optional[str] = None
     citation_key: Optional[str] = None
 
+    # OpenReview fields
+    openreview_id: Optional[str] = None
+    openreview_venue: Optional[str] = None
+
 
 class Paper(PaperBase):
     """Full paper response schema."""
@@ -138,6 +146,8 @@ class Paper(PaperBase):
     arxiv_primary_category: Optional[str] = None
     arxiv_published_at: Optional[dt.datetime] = None
     arxiv_updated_at: Optional[dt.datetime] = None
+    openreview_id: Optional[str] = None
+    openreview_venue: Optional[str] = None
     doi: Optional[str] = None
     journal_ref: Optional[str] = None
     citation_key: Optional[str] = None

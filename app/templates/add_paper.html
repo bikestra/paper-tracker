@@ -6,15 +6,15 @@
 <div class="max-w-2xl mx-auto">
     <h1 class="text-2xl font-bold text-gray-900 mb-6">Add Paper</h1>
 
-    <!-- arXiv Fetch -->
+    <!-- arXiv/OpenReview Fetch -->
     <div class="bg-white rounded-lg shadow-sm border p-6 mb-6">
-        <h2 class="text-lg font-medium text-gray-900 mb-4">Import from arXiv</h2>
+        <h2 class="text-lg font-medium text-gray-900 mb-4">Import from arXiv or OpenReview</h2>
         <form hx-post="/papers/fetch-arxiv"
               hx-target="#paper-form-fields"
               hx-swap="innerHTML"
               class="flex gap-3">
             <input type="text" name="url_or_id"
-                   placeholder="arXiv URL or ID (e.g., 2301.01234)"
+                   placeholder="arXiv or OpenReview URL/ID"
                    class="flex-grow px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
             <button type="submit" class="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-2">
                 <span class="htmx-indicator">
@@ -26,7 +26,7 @@
                 Fetch
             </button>
         </form>
-        <p class="text-sm text-gray-500 mt-2">Or fill in the form manually below</p>
+        <p class="text-sm text-gray-500 mt-2">e.g., 2301.01234 or openreview.net/forum?id=...</p>
     </div>
 
     <!-- Paper Form -->
