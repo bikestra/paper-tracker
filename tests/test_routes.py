@@ -92,3 +92,92 @@ class TestHealthCheck:
         response = client.get("/health")
         assert response.status_code == 200
         assert "running" in response.json()["message"].lower()
+
+
+class TestInsightsGenerate:
+    """Tests for POST /insights/{year}/{month}/generate."""
+
+    def _log_effort(self, client, sample_paper):
+        from app import crud
+
+        session = client._Session()
+        try:
+            log = crud.create_effort_log(
+                session, points=3, paper_id=sample_paper, user_id=1
+            )
+            return log.created_at.year, log.created_at.month
+        finally:
+            session.close()
+
+    def test_generate_success(self, client, sample_paper):
+        from unittest.mock import AsyncMock, patch
+        from app import crud
+
+        year, month = self._log_effort(client, sample_paper)
+
+        with patch(
+            "app.gpt.generate_monthly_summary",
+            new=AsyncMock(return_value="A mocked monthly summary."),
+        ):
+            response = client.post(
+                f"/insights/{year}/{month}/generate", follow_redirects=False
+            )
+
+        assert response.status_code == 303
+        assert response.headers["location"] == f"/insights/{year}/{month}"
+
+        session = client._Session()
+        try:
+            summary = crud.get_monthly_summary(session, year, month, user_id=1)
+            assert summary is not None
+            assert summary.summary == "A mocked monthly summary."
+        finally:
+            session.close()
+
+    def test_generate_gpt_error(self, client, sample_paper):
+        from unittest.mock import AsyncMock, patch
+        from app.gpt import GPTError
+
+        year, month = self._log_effort(client, sample_paper)
+
+        with patch(
+            "app.gpt.generate_monthly_summary",
+            new=AsyncMock(side_effect=GPTError("boom")),
+        ):
+            response = client.post(f"/insights/{year}/{month}/generate")
+
+        assert response.status_code == 500
+        assert "boom" in response.text
+
+    def test_regenerate_overwrites_in_place(self, client, sample_paper):
+        from unittest.mock import AsyncMock, patch
+        from app import crud
+
+        year, month = self._log_effort(client, sample_paper)
+
+        with patch(
+            "app.gpt.generate_monthly_summary",
+            new=AsyncMock(return_value="First version."),
+        ):
+            client.post(f"/insights/{year}/{month}/generate", follow_redirects=False)
+
+        with patch(
+            "app.gpt.generate_monthly_summary",
+            new=AsyncMock(return_value="Second version."),
+        ):
+            client.post(f"/insights/{year}/{month}/generate", follow_redirects=False)
+
+        session = client._Session()
+        try:
+            from app import models
+
+            count = (
+                session.query(models.MonthlySummary)
+                .filter_by(user_id=1, year=year, month=month)
+                .count()
+            )
+            assert count == 1
+            summary = crud.get_monthly_summary(session, year, month, user_id=1)
+            assert summary.summary == "Second version."
+        finally:
+            session.close()

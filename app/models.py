@@ -81,6 +81,9 @@ class User(Base):
     pending_arxiv_links: Mapped[list[PendingArxivLink]] = relationship(
         "PendingArxivLink", back_populates="user", cascade="all, delete-orphan"
     )
+    monthly_summaries: Mapped[list[MonthlySummary]] = relationship(
+        "MonthlySummary", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Category(Base):
@@ -564,3 +567,27 @@ class GPTConversation(Base):
     workout: Mapped[Workout | None] = relationship(
         "Workout", back_populates="gpt_conversations"
     )
+
+
+class MonthlySummary(Base):
+    """GPT-generated monthly research-interest summary."""
+
+    __tablename__ = "monthly_summaries"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "year", "month", name="uq_monthly_summary_user_year_month"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True
+    )
+    year: Mapped[int] = mapped_column(Integer, nullable=False)
+    month: Mapped[int] = mapped_column(Integer, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    generated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+    user: Mapped[User] = relationship("User", back_populates="monthly_summaries")

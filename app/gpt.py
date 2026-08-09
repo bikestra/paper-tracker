@@ -472,3 +472,107 @@ async def chat_with_coach(
     messages.append({"role": "user", "content": user_message})
 
     return await call_openai(messages, max_tokens=1000)
+
+
+MONTHLY_SUMMARY_SYSTEM_PROMPT = """You are an assistant that writes a monthly research-reading digest for a user who tracks academic papers they read and log effort against.
+
+You will be given:
+- The papers the user engaged with this month (title, abstract, personal notes, effort points, and any notes logged with each reading session)
+- This month's total effort points, plus the effort totals for the trailing 3 months for comparison
+- The user's own summaries from prior months (if available), to compare against
+
+Write a digest covering:
+1. The main research themes/topics the user engaged with this month, grounded in the specific papers provided (mention titles or topics concretely, don't be generic).
+2. How this month's effort compares to the trailing 3 months (more/less active, steady, etc.), referencing the actual numbers given.
+3. How the user's research interests have shifted compared to prior months' summaries, if any were provided — what's new, what's continuing, what dropped off. If no prior summaries are available, skip this point.
+
+Write 3-5 short paragraphs of plain prose. Do not use markdown headers, bullet lists, or JSON — just clear, direct paragraphs a person would enjoy reading as a monthly recap.
+"""
+
+
+def format_month_papers(papers: list[dict]) -> str:
+    """Format a month's papers (with effort data) for GPT context."""
+    if not papers:
+        return "No papers with logged effort this month."
+
+    lines = []
+    for p in papers:
+        abstract = (p.get("abstract") or "").strip()
+        if len(abstract) > 600:
+            abstract = abstract[:600] + "..."
+        lines.append(f"- {p['title']} ({p['total_points']} effort pts)")
+        if abstract:
+            lines.append(f"  Abstract: {abstract}")
+        if p.get("notes"):
+            lines.append(f"  Paper notes: {p['notes']}")
+        if p.get("log_notes"):
+            lines.append(f"  Session notes: {'; '.join(p['log_notes'])}")
+    return "\n".join(lines)
+
+
+def format_effort_trend(trend: list[tuple[str, int]]) -> str:
+    """Format trailing-month effort totals for GPT context."""
+    if not trend:
+        return "No prior effort data."
+    return "\n".join(f"- {label}: {points} pts" for label, points in trend)
+
+
+def build_monthly_summary_prompt(
+    month_label: str,
+    papers: list[dict],
+    effort_this_month: int,
+    effort_trend: list[tuple[str, int]],
+    prev_summaries: list[str],
+) -> str:
+    """Build the prompt for generating a monthly research summary."""
+    prompt_parts = [
+        f"Generate a research digest for {month_label}.",
+        "",
+        f"## Papers engaged with in {month_label} ({effort_this_month} total effort pts):",
+        format_month_papers(papers),
+        "",
+        "## Effort trend (trailing months):",
+        format_effort_trend(effort_trend),
+    ]
+
+    if prev_summaries:
+        prompt_parts.extend(
+            [
+                "",
+                "## Prior months' summaries (most recent first):",
+                *[f"\n{s}" for s in prev_summaries],
+            ]
+        )
+
+    prompt_parts.extend(
+        [
+            "",
+            "## Instructions:",
+            "Write the digest as described in your system prompt.",
+        ]
+    )
+
+    return "\n".join(prompt_parts)
+
+
+async def generate_monthly_summary(
+    month_label: str,
+    papers: list[dict],
+    effort_this_month: int,
+    effort_trend: list[tuple[str, int]],
+    prev_summaries: list[str],
+) -> str:
+    """Generate a monthly research-interest summary using GPT.
+
+    Returns the raw text response (no structured parsing needed).
+    """
+    user_prompt = build_monthly_summary_prompt(
+        month_label, papers, effort_this_month, effort_trend, prev_summaries
+    )
+
+    messages = [
+        {"role": "system", "content": MONTHLY_SUMMARY_SYSTEM_PROMPT},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    return await call_openai(messages, max_tokens=900)

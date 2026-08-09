@@ -112,6 +112,66 @@ class TestEffortPages:
         assert response.status_code == 200
 
 
+class TestInsightsPages:
+    """Tests for monthly insights pages."""
+
+    def test_insights_page_empty(self, client):
+        response = client.get("/insights")
+        assert response.status_code == 200
+
+    def test_insights_page_with_effort(self, client, sample_paper):
+        from app import crud
+
+        session = client._Session()
+        try:
+            crud.create_effort_log(session, points=3, paper_id=sample_paper, user_id=1)
+        finally:
+            session.close()
+
+        response = client.get("/insights")
+        assert response.status_code == 200
+        assert b"Not generated yet" in response.content
+
+    def test_insights_month_page_no_summary(self, client, sample_paper):
+        from app import crud
+
+        session = client._Session()
+        try:
+            log = crud.create_effort_log(
+                session, points=3, paper_id=sample_paper, user_id=1
+            )
+            year, month = log.created_at.year, log.created_at.month
+        finally:
+            session.close()
+
+        response = client.get(f"/insights/{year}/{month}")
+        assert response.status_code == 200
+        assert b"No summary yet" in response.content
+
+    def test_insights_month_page_with_summary(self, client, sample_paper):
+        from app import crud
+
+        session = client._Session()
+        try:
+            log = crud.create_effort_log(
+                session, points=3, paper_id=sample_paper, user_id=1
+            )
+            year, month = log.created_at.year, log.created_at.month
+            crud.upsert_monthly_summary(
+                session, year, month, "This month was about testing.", user_id=1
+            )
+        finally:
+            session.close()
+
+        response = client.get(f"/insights/{year}/{month}")
+        assert response.status_code == 200
+        assert b"This month was about testing." in response.content
+
+    def test_insights_month_page_invalid_month(self, client):
+        response = client.get("/insights/2026/13")
+        assert response.status_code == 404
+
+
 class TestWorkoutPages:
     """Tests for workout pages."""
 

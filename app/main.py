@@ -1060,6 +1060,181 @@ def stats_page(
     )
 
 
+# --- Monthly Insights Routes ---
+
+
+def _prior_months(year: int, month: int, n: int) -> list[tuple[int, int]]:
+    """Return the n calendar months preceding (year, month), most recent first."""
+    import calendar
+
+    result = []
+    y, m = year, month
+    for _ in range(n):
+        m -= 1
+        if m == 0:
+            m = 12
+            y -= 1
+        result.append((y, m))
+    return result
+
+
+@app.get("/insights", response_class=HTMLResponse)
+def insights_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Page listing all months with logged effort and their generated summaries."""
+    import calendar
+
+    months = crud.get_effort_months(db, user_id=current_user.id)
+    month_rows = []
+    for year, month in months:
+        summary = crud.get_monthly_summary(db, year, month, user_id=current_user.id)
+        month_rows.append(
+            {
+                "year": year,
+                "month": month,
+                "label": f"{calendar.month_name[month]} {year}",
+                "effort_total": crud.get_effort_total_for_month(
+                    db, year, month, user_id=current_user.id
+                ),
+                "summary": summary,
+            }
+        )
+
+    return templates.TemplateResponse(
+        "insights.html",
+        {
+            "request": request,
+            "month_rows": month_rows,
+            "active_page": "insights",
+        },
+    )
+
+
+@app.get("/insights/{year}/{month}", response_class=HTMLResponse)
+def insights_month_page(
+    request: Request,
+    year: int,
+    month: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Page showing (and generating) a single month's research summary."""
+    import calendar
+
+    if not (1 <= month <= 12):
+        raise HTTPException(status_code=404, detail="Invalid month")
+
+    papers = crud.get_papers_with_effort_in_month(
+        db, year, month, user_id=current_user.id
+    )
+    effort_this_month = crud.get_effort_total_for_month(
+        db, year, month, user_id=current_user.id
+    )
+    trend = [
+        (
+            f"{calendar.month_name[m]} {y}",
+            crud.get_effort_total_for_month(db, y, m, user_id=current_user.id),
+        )
+        for y, m in reversed(_prior_months(year, month, 3))
+    ]
+    summary = crud.get_monthly_summary(db, year, month, user_id=current_user.id)
+
+    return templates.TemplateResponse(
+        "insights_month.html",
+        {
+            "request": request,
+            "year": year,
+            "month": month,
+            "month_label": f"{calendar.month_name[month]} {year}",
+            "papers": papers,
+            "effort_this_month": effort_this_month,
+            "effort_trend": trend,
+            "summary": summary,
+            "active_page": "insights",
+        },
+    )
+
+
+@app.post("/insights/{year}/{month}/generate", response_class=HTMLResponse)
+async def generate_monthly_summary_route(
+    request: Request,
+    year: int,
+    month: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Generate (or regenerate) the GPT summary for a given month."""
+    import calendar
+
+    from .gpt import generate_monthly_summary as gpt_generate_summary, GPTError
+
+    if not (1 <= month <= 12):
+        raise HTTPException(status_code=404, detail="Invalid month")
+
+    month_label = f"{calendar.month_name[month]} {year}"
+    papers = crud.get_papers_with_effort_in_month(
+        db, year, month, user_id=current_user.id
+    )
+    effort_this_month = crud.get_effort_total_for_month(
+        db, year, month, user_id=current_user.id
+    )
+    prior_months = list(reversed(_prior_months(year, month, 3)))
+    trend = [
+        (
+            f"{calendar.month_name[m]} {y}",
+            crud.get_effort_total_for_month(db, y, m, user_id=current_user.id),
+        )
+        for y, m in prior_months
+    ]
+    prev_summaries = []
+    for y, m in reversed(prior_months):
+        prior_summary = crud.get_monthly_summary(db, y, m, user_id=current_user.id)
+        if prior_summary:
+            prev_summaries.append(
+                f"{calendar.month_name[m]} {y}:\n{prior_summary.summary}"
+            )
+
+    try:
+        response = await gpt_generate_summary(
+            month_label, papers, effort_this_month, trend, prev_summaries
+        )
+
+        crud.upsert_monthly_summary(
+            db, year, month, response, user_id=current_user.id
+        )
+        crud.save_gpt_conversation(
+            db,
+            user_message=f"Generate monthly research summary for {month_label}",
+            gpt_response=response,
+            workout_id=None,
+            user_id=current_user.id,
+        )
+
+        return RedirectResponse(url=f"/insights/{year}/{month}", status_code=303)
+
+    except GPTError as e:
+        summary = crud.get_monthly_summary(db, year, month, user_id=current_user.id)
+        return templates.TemplateResponse(
+            "insights_month.html",
+            {
+                "request": request,
+                "year": year,
+                "month": month,
+                "month_label": month_label,
+                "papers": papers,
+                "effort_this_month": effort_this_month,
+                "effort_trend": trend,
+                "summary": summary,
+                "active_page": "insights",
+                "error": str(e),
+            },
+            status_code=500,
+        )
+
+
 # --- Pending ArXiv Links Routes ---
 
 
@@ -1883,10 +2058,10 @@ def workouts_page(
     exercises = crud.get_exercises(db, user_id=user_id)
     next_workout_type = crud.get_next_workout_type(db, user_id=user_id)
 
-    # Get exercise history for charts (last 20 workouts per exercise)
+    # Get full exercise history for charts; range filtering happens client-side
     exercise_history = {}
     for ex_type in models.ExerciseType:
-        history = crud.get_exercise_history(db, ex_type, user_id=user_id, limit=20)
+        history = crud.get_exercise_history(db, ex_type, user_id=user_id, limit=None)
         # Reverse to get chronological order (oldest first)
         exercise_history[ex_type.value] = list(reversed(history))
 

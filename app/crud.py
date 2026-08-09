@@ -1328,7 +1328,7 @@ def get_exercise_history(
     db: Session,
     exercise_type: models.ExerciseType,
     user_id: int = DEFAULT_USER_ID,
-    limit: int = 5,
+    limit: int | None = 5,
 ) -> list[dict]:
     """Get recent exercise history for GPT context."""
     stmt = (
@@ -1340,8 +1340,9 @@ def get_exercise_history(
             models.Workout.status == models.WorkoutStatus.COMPLETED,
         )
         .order_by(models.Workout.started_at.desc())
-        .limit(limit)
     )
+    if limit is not None:
+        stmt = stmt.limit(limit)
     results = db.execute(stmt).all()
     return [
         {
@@ -1648,3 +1649,131 @@ def get_effort_by_day(
     )
     results = db.execute(stmt).all()
     return {int(day): total or 0 for day, total in results}
+
+
+# --- Monthly Insights Functions ---
+
+
+def get_effort_months(
+    db: Session,
+    user_id: int = DEFAULT_USER_ID,
+) -> list[tuple[int, int]]:
+    """Get distinct (year, month) pairs with logged effort, newest first."""
+    from sqlalchemy import extract
+
+    stmt = (
+        select(
+            extract("year", models.EffortLog.created_at).label("year"),
+            extract("month", models.EffortLog.created_at).label("month"),
+        )
+        .where(models.EffortLog.user_id == user_id)
+        .distinct()
+        .order_by(
+            extract("year", models.EffortLog.created_at).desc(),
+            extract("month", models.EffortLog.created_at).desc(),
+        )
+    )
+    results = db.execute(stmt).all()
+    return [(int(year), int(month)) for year, month in results]
+
+
+def get_effort_total_for_month(
+    db: Session,
+    year: int,
+    month: int,
+    user_id: int = DEFAULT_USER_ID,
+) -> int:
+    """Get total effort points logged in a given year/month."""
+    from sqlalchemy import extract
+
+    stmt = select(func.sum(models.EffortLog.points)).where(
+        models.EffortLog.user_id == user_id,
+        extract("year", models.EffortLog.created_at) == year,
+        extract("month", models.EffortLog.created_at) == month,
+    )
+    total = db.execute(stmt).scalar()
+    return total or 0
+
+
+def get_papers_with_effort_in_month(
+    db: Session,
+    year: int,
+    month: int,
+    user_id: int = DEFAULT_USER_ID,
+) -> list[dict]:
+    """Get papers with logged effort in a given year/month, most-engaged first."""
+    from sqlalchemy import extract
+
+    stmt = (
+        select(models.EffortLog, models.Paper)
+        .join(models.Paper, models.EffortLog.paper_id == models.Paper.id)
+        .where(
+            models.EffortLog.user_id == user_id,
+            models.EffortLog.paper_id.isnot(None),
+            extract("year", models.EffortLog.created_at) == year,
+            extract("month", models.EffortLog.created_at) == month,
+        )
+        .order_by(models.EffortLog.created_at)
+    )
+    results = db.execute(stmt).all()
+
+    papers: dict[int, dict] = {}
+    for log, paper in results:
+        if paper.id not in papers:
+            papers[paper.id] = {
+                "id": paper.id,
+                "title": paper.title,
+                "abstract": paper.abstract,
+                "notes": paper.notes,
+                "category": paper.category.name if paper.category else None,
+                "total_points": 0,
+                "log_notes": [],
+            }
+        papers[paper.id]["total_points"] += log.points
+        if log.note:
+            papers[paper.id]["log_notes"].append(log.note)
+
+    return sorted(papers.values(), key=lambda p: p["total_points"], reverse=True)
+
+
+def get_monthly_summary(
+    db: Session,
+    year: int,
+    month: int,
+    user_id: int = DEFAULT_USER_ID,
+) -> models.MonthlySummary | None:
+    """Get the stored monthly summary for a given year/month, if any."""
+    stmt = select(models.MonthlySummary).where(
+        models.MonthlySummary.user_id == user_id,
+        models.MonthlySummary.year == year,
+        models.MonthlySummary.month == month,
+    )
+    return db.scalar(stmt)
+
+
+def upsert_monthly_summary(
+    db: Session,
+    year: int,
+    month: int,
+    summary_text: str,
+    user_id: int = DEFAULT_USER_ID,
+) -> models.MonthlySummary:
+    """Create or overwrite the monthly summary for a given year/month."""
+    existing = get_monthly_summary(db, year, month, user_id=user_id)
+    if existing:
+        existing.summary = summary_text
+        existing.generated_at = dt.datetime.now(dt.timezone.utc)
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    summary = models.MonthlySummary(
+        user_id=user_id,
+        year=year,
+        month=month,
+        summary=summary_text,
+    )
+    db.add(summary)
+    db.commit()
+    db.refresh(summary)
+    return summary

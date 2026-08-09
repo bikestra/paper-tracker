@@ -46,7 +46,15 @@
 <!-- Exercise Progress -->
 {% if exercises %}
 <div class="mb-6">
-    <h2 class="text-lg font-semibold mb-3 text-gray-700">Exercise Progress</h2>
+    <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold text-gray-700">Exercise Progress</h2>
+        <div id="range-selector" class="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+            <button type="button" data-range="1m" class="range-btn px-2 py-1 hover:bg-gray-100">1M</button>
+            <button type="button" data-range="3m" class="range-btn px-2 py-1 hover:bg-gray-100 border-l border-gray-200">3M</button>
+            <button type="button" data-range="12m" class="range-btn px-2 py-1 hover:bg-gray-100 border-l border-gray-200">12M</button>
+            <button type="button" data-range="all" class="range-btn px-2 py-1 hover:bg-gray-100 border-l border-gray-200">All</button>
+        </div>
+    </div>
     <div class="space-y-4">
         {% for ex in exercises %}
         <div class="bg-white border rounded-lg p-4">
@@ -61,10 +69,7 @@
                     {% endif %}
                 </div>
                 <div class="text-right text-xs text-gray-400">
-                    {% set history = exercise_history.get(ex.exercise_type.value, []) %}
-                    {% if history %}
-                    {{ history|length }} workouts
-                    {% endif %}
+                    <span id="count-{{ ex.exercise_type.value }}"></span>
                 </div>
             </div>
             <!-- Chart -->
@@ -116,17 +121,41 @@ const chartColors = {
     'PULL_UP': { line: 'rgb(20, 184, 166)', fill: 'rgba(20, 184, 166, 0.1)' },
 };
 
-// Create charts for each exercise
-document.addEventListener('DOMContentLoaded', () => {
-    for (const [exerciseType, history] of Object.entries(exerciseHistory)) {
+// Range options, in days-back from today ('all' = no cutoff)
+const rangeDays = { '1m': 30, '3m': 90, '12m': 365, 'all': null };
+const charts = {};
+
+function filterHistory(history, range) {
+    const days = rangeDays[range];
+    if (days === null || days === undefined) return history;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+    return history.filter(h => new Date(h.date) >= cutoff);
+}
+
+function renderCharts(range) {
+    for (const [exerciseType, fullHistory] of Object.entries(exerciseHistory)) {
         const canvas = document.getElementById(`chart-${exerciseType}`);
-        if (!canvas || history.length === 0) continue;
+        const countEl = document.getElementById(`count-${exerciseType}`);
+        if (!canvas) continue;
+
+        const history = filterHistory(fullHistory, range);
+
+        if (countEl) {
+            countEl.textContent = history.length ? `${history.length} workouts` : '';
+        }
+
+        if (charts[exerciseType]) {
+            charts[exerciseType].destroy();
+            delete charts[exerciseType];
+        }
+        if (history.length === 0) continue;
 
         const labels = history.map(h => h.date.slice(5)); // MM-DD format
         const weights = history.map(h => h.weight || 0);
         const colors = chartColors[exerciseType] || { line: 'rgb(107, 114, 128)', fill: 'rgba(107, 114, 128, 0.1)' };
 
-        new Chart(canvas, {
+        charts[exerciseType] = new Chart(canvas, {
             type: 'line',
             data: {
                 labels: labels,
@@ -173,6 +202,35 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+}
+
+function setActiveRangeButton(range) {
+    document.querySelectorAll('.range-btn').forEach(btn => {
+        if (btn.dataset.range === range) {
+            btn.classList.add('bg-blue-600', 'text-white');
+            btn.classList.remove('hover:bg-gray-100');
+        } else {
+            btn.classList.remove('bg-blue-600', 'text-white');
+            btn.classList.add('hover:bg-gray-100');
+        }
+    });
+}
+
+function selectRange(range) {
+    localStorage.setItem('workoutChartRange', range);
+    setActiveRangeButton(range);
+    renderCharts(range);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.range-btn').forEach(btn => {
+        btn.addEventListener('click', () => selectRange(btn.dataset.range));
+    });
+
+    const savedRange = localStorage.getItem('workoutChartRange');
+    const initialRange = rangeDays.hasOwnProperty(savedRange) ? savedRange : '3m';
+    setActiveRangeButton(initialRange);
+    renderCharts(initialRange);
 });
 </script>
 {% endblock %}
