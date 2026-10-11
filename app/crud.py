@@ -546,27 +546,29 @@ def create_effort_log(
     note: str | None = None,
     paper_id: int | None = None,
     textbook_id: int | None = None,
+    category: models.EffortCategory | None = None,
     user_id: int = DEFAULT_USER_ID,
 ) -> models.EffortLog | None:
-    """Create a new effort log entry for a paper or textbook."""
-    # Must specify either paper_id or textbook_id
-    if paper_id is None and textbook_id is None:
-        return None
-
-    # Verify the item exists and belongs to user
+    """Create a new effort log entry for a paper, textbook, or ad hoc activity."""
     if paper_id is not None:
-        paper = get_paper(db, paper_id, user_id)
-        if not paper:
+        # Verify the item exists and belongs to user
+        if not get_paper(db, paper_id, user_id):
             return None
-    if textbook_id is not None:
-        textbook = get_textbook(db, textbook_id, user_id)
-        if not textbook:
+        category = models.EffortCategory.PAPER
+    elif textbook_id is not None:
+        if not get_textbook(db, textbook_id, user_id):
             return None
+        category = models.EffortCategory.TEXTBOOK
+    elif category not in models.ADHOC_EFFORT_CATEGORIES:
+        # Ad hoc entries (not linked to a paper/textbook) must specify one of
+        # the categories that supports logging without an underlying item.
+        return None
 
     effort_log = models.EffortLog(
         user_id=user_id,
         paper_id=paper_id,
         textbook_id=textbook_id,
+        category=category,
         points=points,
         note=note,
     )
@@ -1649,6 +1651,93 @@ def get_effort_by_day(
     )
     results = db.execute(stmt).all()
     return {int(day): total or 0 for day, total in results}
+
+
+def get_effort_by_month_by_category(
+    db: Session,
+    year: int,
+    user_id: int = DEFAULT_USER_ID,
+) -> dict[str, dict[int, int]]:
+    """Get total effort points per month per category for a given year.
+
+    Returns {category_value: {month: points}}.
+    """
+    from sqlalchemy import extract
+
+    stmt = (
+        select(
+            models.EffortLog.category,
+            extract("month", models.EffortLog.created_at).label("month"),
+            func.sum(models.EffortLog.points),
+        )
+        .where(
+            models.EffortLog.user_id == user_id,
+            extract("year", models.EffortLog.created_at) == year,
+        )
+        .group_by(
+            models.EffortLog.category,
+            extract("month", models.EffortLog.created_at),
+        )
+    )
+    results = db.execute(stmt).all()
+    by_category: dict[str, dict[int, int]] = {}
+    for category, month, total in results:
+        by_category.setdefault(category.value, {})[int(month)] = total or 0
+    return by_category
+
+
+def get_effort_by_day_by_category(
+    db: Session,
+    year: int,
+    month: int,
+    user_id: int = DEFAULT_USER_ID,
+) -> dict[str, dict[int, int]]:
+    """Get total effort points per day per category for a given month.
+
+    Returns {category_value: {day: points}}.
+    """
+    from sqlalchemy import extract
+
+    stmt = (
+        select(
+            models.EffortLog.category,
+            extract("day", models.EffortLog.created_at).label("day"),
+            func.sum(models.EffortLog.points),
+        )
+        .where(
+            models.EffortLog.user_id == user_id,
+            extract("year", models.EffortLog.created_at) == year,
+            extract("month", models.EffortLog.created_at) == month,
+        )
+        .group_by(
+            models.EffortLog.category,
+            extract("day", models.EffortLog.created_at),
+        )
+    )
+    results = db.execute(stmt).all()
+    by_category: dict[str, dict[int, int]] = {}
+    for category, day, total in results:
+        by_category.setdefault(category.value, {})[int(day)] = total or 0
+    return by_category
+
+
+def get_effort_category_totals(
+    db: Session,
+    user_id: int = DEFAULT_USER_ID,
+    year: int | None = None,
+) -> dict[str, int]:
+    """Get total effort points per category, optionally restricted to a year."""
+    from sqlalchemy import extract
+
+    stmt = select(models.EffortLog.category, func.sum(models.EffortLog.points)).where(
+        models.EffortLog.user_id == user_id
+    )
+    if year is not None:
+        stmt = stmt.where(extract("year", models.EffortLog.created_at) == year)
+    stmt = stmt.group_by(models.EffortLog.category)
+
+    results = db.execute(stmt).all()
+    return {category.value: total or 0 for category, total in results}
 
 
 # --- Monthly Insights Functions ---

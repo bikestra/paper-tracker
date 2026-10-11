@@ -38,6 +38,73 @@ class TestAddPaper:
         assert "Test Paper" in response.text
 
 
+class TestAdhocEffort:
+    """Tests for POST /efforts/adhoc."""
+
+    def test_log_software_effort(self, client):
+        response = client.post(
+            "/efforts/adhoc",
+            data={"category": "SOFTWARE", "points": 2, "note": "Refactored crud.py"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        assert response.headers["location"] == "/efforts"
+
+        response = client.get("/efforts")
+        assert "Software Engineering" in response.text
+        assert "Refactored crud.py" in response.text
+
+    def test_log_work_effort(self, client):
+        response = client.post(
+            "/efforts/adhoc",
+            data={"category": "WORK", "points": 2, "note": "Fixed prod incident"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+
+        response = client.get("/efforts")
+        assert "Work (from home)" in response.text
+        assert "Fixed prod incident" in response.text
+
+    def test_log_casual_reading_effort(self, client):
+        response = client.post(
+            "/efforts/adhoc",
+            data={"category": "CASUAL_READING", "points": 1, "note": "A sci-fi novel"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+
+        response = client.get("/efforts")
+        assert "Casual Reading" in response.text
+        assert "A sci-fi novel" in response.text
+
+    def test_log_music_effort(self, client):
+        response = client.post(
+            "/efforts/adhoc",
+            data={"category": "MUSIC", "points": 1, "note": ""},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+
+        response = client.get("/efforts")
+        assert "Music" in response.text
+
+    def test_log_adhoc_effort_rejects_paper_category(self, client):
+        """PAPER/TEXTBOOK can only be logged via their own item-linked routes."""
+        response = client.post(
+            "/efforts/adhoc",
+            data={"category": "PAPER", "points": 1, "note": ""},
+        )
+        assert response.status_code == 400
+
+    def test_log_adhoc_effort_rejects_unknown_category(self, client):
+        response = client.post(
+            "/efforts/adhoc",
+            data={"category": "WOODWORKING", "points": 1, "note": ""},
+        )
+        assert response.status_code == 400
+
+
 class TestAuthors:
     """Tests for authors functionality."""
 

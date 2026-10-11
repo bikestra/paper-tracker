@@ -110,6 +110,8 @@ class TestEffortPages:
     def test_efforts_page(self, client):
         response = client.get("/efforts")
         assert response.status_code == 200
+        assert b"Log ad hoc effort" in response.content
+        assert b"Software Engineering" in response.content
 
 
 class TestInsightsPages:
@@ -204,6 +206,38 @@ class TestStatsPage:
         response = client.get("/stats")
         assert response.status_code == 200
         assert b"Statistics" in response.content
+
+    def test_stats_page_with_mixed_effort_categories(self, client, sample_paper):
+        """Effort-by-type breakdown must render with paper and ad hoc entries."""
+        from app import crud
+
+        session = client._Session()
+        try:
+            crud.create_effort_log(session, points=3, paper_id=sample_paper, user_id=1)
+            crud.create_effort_log(
+                session, points=2, category=crud.models.EffortCategory.SOFTWARE, user_id=1
+            )
+            crud.create_effort_log(
+                session, points=1, category=crud.models.EffortCategory.MUSIC, user_id=1
+            )
+        finally:
+            session.close()
+
+        response = client.get("/stats")
+        assert response.status_code == 200
+        assert b"Effort by Type" in response.content
+
+    def test_stats_page_monthly_comparison_split_by_category(self, client):
+        """Monthly Comparison must include one chart per effort type plus the overall one."""
+        response = client.get("/stats")
+        assert response.status_code == 200
+        assert b"Effort Points - Overall" in response.content
+        assert b"Effort Points - Papers" in response.content
+        assert b"Effort Points - Textbooks" in response.content
+        assert b"Effort Points - Software Engineering" in response.content
+        assert b"Effort Points - Music" in response.content
+        assert b"Effort Points - Work (from home)" in response.content
+        assert b"Effort Points - Casual Reading" in response.content
 
 
 class TestPendingPage:

@@ -955,9 +955,41 @@ def efforts_page(
         {
             "request": request,
             "effort_logs": effort_logs,
+            "adhoc_categories": models.ADHOC_EFFORT_CATEGORIES,
             "active_page": "efforts",
         },
     )
+
+
+@app.post("/efforts/adhoc", response_class=HTMLResponse)
+def log_adhoc_effort(
+    request: Request,
+    category: Annotated[str, Form()],
+    points: Annotated[int, Form()] = 1,
+    note: Annotated[str, Form()] = "",
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Log effort points for an activity not tied to a paper or textbook."""
+    try:
+        parsed_category = models.EffortCategory(category)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid category")
+
+    if parsed_category not in models.ADHOC_EFFORT_CATEGORIES:
+        raise HTTPException(status_code=400, detail="Invalid category")
+
+    effort_log = crud.create_effort_log(
+        db,
+        points=points,
+        note=note.strip() or None,
+        category=parsed_category,
+        user_id=current_user.id,
+    )
+    if effort_log is None:
+        raise HTTPException(status_code=400, detail="Could not log effort")
+
+    return RedirectResponse(url="/efforts", status_code=303)
 
 
 # --- Stats Routes ---
@@ -1024,6 +1056,23 @@ def stats_page(
         db, last_month_year, last_month, user_id=current_user.id
     )
 
+    effort_by_category_this_year = crud.get_effort_by_month_by_category(
+        db, current_year, user_id=current_user.id
+    )
+    effort_category_totals_all_time = crud.get_effort_category_totals(
+        db, user_id=current_user.id
+    )
+    effort_by_day_this_month_by_category = crud.get_effort_by_day_by_category(
+        db, current_year, current_month, user_id=current_user.id
+    )
+    effort_by_day_last_month_by_category = crud.get_effort_by_day_by_category(
+        db, last_month_year, last_month, user_id=current_user.id
+    )
+    effort_categories = [
+        {"value": cat.value, "label": models.EFFORT_CATEGORY_LABELS[cat]}
+        for cat in models.EffortCategory
+    ]
+
     month_names = [calendar.month_abbr[i] for i in range(1, 13)]
     current_month_name = calendar.month_name[current_month]
     last_month_name = calendar.month_name[last_month]
@@ -1056,6 +1105,11 @@ def stats_page(
             "papers_read_last_month": papers_read_last_month,
             "effort_this_month": effort_this_month,
             "effort_last_month": effort_last_month,
+            "effort_by_category_this_year": effort_by_category_this_year,
+            "effort_category_totals_all_time": effort_category_totals_all_time,
+            "effort_by_day_this_month_by_category": effort_by_day_this_month_by_category,
+            "effort_by_day_last_month_by_category": effort_by_day_last_month_by_category,
+            "effort_categories": effort_categories,
         },
     )
 
@@ -1202,9 +1256,7 @@ async def generate_monthly_summary_route(
             month_label, papers, effort_this_month, trend, prev_summaries
         )
 
-        crud.upsert_monthly_summary(
-            db, year, month, response, user_id=current_user.id
-        )
+        crud.upsert_monthly_summary(db, year, month, response, user_id=current_user.id)
         crud.save_gpt_conversation(
             db,
             user_message=f"Generate monthly research summary for {month_label}",

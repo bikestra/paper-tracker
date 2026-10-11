@@ -7,6 +7,37 @@
     <h1 class="text-2xl font-bold text-gray-900">Effort Log</h1>
 </div>
 
+<div class="bg-white rounded-lg shadow-sm border p-4 mb-6">
+    <h2 class="text-sm font-semibold text-gray-900 mb-3">Log ad hoc effort</h2>
+    <form action="/efforts/adhoc" method="POST" class="flex flex-col sm:flex-row sm:items-end gap-3">
+        <div class="flex-shrink-0">
+            <label for="adhoc-category" class="block text-xs font-medium text-gray-500 mb-1">Type</label>
+            <select id="adhoc-category" name="category"
+                class="rounded-md border border-gray-300 px-3 py-2 text-sm w-full sm:w-auto">
+                {% for cat in adhoc_categories %}
+                <option value="{{ cat.value }}">
+                    {% if cat.value == 'SOFTWARE' %}Software Engineering{% elif cat.value == 'MUSIC' %}Music{% elif cat.value == 'WORK' %}Work (from home){% elif cat.value == 'CASUAL_READING' %}Casual Reading{% else %}{{ cat.value }}{% endif %}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="flex-shrink-0 w-24">
+            <label for="adhoc-points" class="block text-xs font-medium text-gray-500 mb-1">Points</label>
+            <input type="number" id="adhoc-points" name="points" value="1" min="1"
+                class="rounded-md border border-gray-300 px-3 py-2 text-sm w-full">
+        </div>
+        <div class="flex-grow">
+            <label for="adhoc-note" class="block text-xs font-medium text-gray-500 mb-1">Note (optional)</label>
+            <input type="text" id="adhoc-note" name="note" placeholder="What did you work on?"
+                class="rounded-md border border-gray-300 px-3 py-2 text-sm w-full">
+        </div>
+        <button type="submit"
+            class="flex-shrink-0 bg-green-600 hover:bg-green-700 text-white rounded-md px-4 py-2 text-sm font-medium">
+            Log effort
+        </button>
+    </form>
+</div>
+
 {% if effort_logs %}
 <div class="space-y-4">
     {% for log in effort_logs %}
@@ -27,6 +58,18 @@
                         {{ log.textbook.title }}
                     </a>
                     <span class="text-xs px-2 py-0.5 rounded bg-purple-100 text-purple-700">Textbook</span>
+                    {% elif log.category.value == 'SOFTWARE' %}
+                    <span class="font-medium text-gray-900">Software Engineering</span>
+                    <span class="text-xs px-2 py-0.5 rounded bg-teal-100 text-teal-700">Software</span>
+                    {% elif log.category.value == 'MUSIC' %}
+                    <span class="font-medium text-gray-900">Music</span>
+                    <span class="text-xs px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">Music</span>
+                    {% elif log.category.value == 'WORK' %}
+                    <span class="font-medium text-gray-900">Work (from home)</span>
+                    <span class="text-xs px-2 py-0.5 rounded bg-pink-100 text-pink-700">Work</span>
+                    {% elif log.category.value == 'CASUAL_READING' %}
+                    <span class="font-medium text-gray-900">Casual Reading</span>
+                    <span class="text-xs px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">Casual Reading</span>
                     {% endif %}
                 </div>
                 {% if log.note %}

@@ -35,9 +35,7 @@ def upgrade() -> None:
             "user_id", "year", "month", name="uq_monthly_summary_user_year_month"
         ),
     )
-    op.create_index(
-        "ix_monthly_summaries_user_id", "monthly_summaries", ["user_id"]
-    )
+    op.create_index("ix_monthly_summaries_user_id", "monthly_summaries", ["user_id"])
 
 
 def downgrade() -> None:

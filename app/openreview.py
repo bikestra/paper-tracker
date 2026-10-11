@@ -75,7 +75,9 @@ def parse_openreview_input(url_or_id: str) -> str:
 
 def _fetch_from_semantic_scholar(openreview_id: str) -> OpenReviewMetadata:
     """Fetch metadata from Semantic Scholar as fallback."""
-    api_url = f"https://api.semanticscholar.org/graph/v1/paper/OPENREVIEW:{openreview_id}"
+    api_url = (
+        f"https://api.semanticscholar.org/graph/v1/paper/OPENREVIEW:{openreview_id}"
+    )
     params = {"fields": "title,abstract,authors,venue,year"}
     headers = {"User-Agent": "PaperTracker/1.0 (Academic paper tracking tool)"}
 
@@ -85,7 +87,7 @@ def _fetch_from_semantic_scholar(openreview_id: str) -> OpenReviewMetadata:
 
             if response.status_code == 429:
                 if attempt < 2:
-                    time.sleep(2 ** attempt)
+                    time.sleep(2**attempt)
                     continue
                 raise OpenReviewFetchError(
                     "Semantic Scholar rate limit exceeded. Please try again later."

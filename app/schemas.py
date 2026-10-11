@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .models import (
     DiscoverySourceType,
+    EffortCategory,
     ExerciseType,
     PaperSource,
     PaperStatus,
@@ -229,9 +230,11 @@ class User(BaseModel):
 
 
 class EffortLogCreate(BaseModel):
-    """Create a new effort log entry."""
+    """Create a new effort log entry for a paper, textbook, or ad hoc activity."""
 
-    paper_id: int
+    paper_id: Optional[int] = None
+    textbook_id: Optional[int] = None
+    category: Optional[EffortCategory] = None
     points: int = Field(default=1, ge=1)
     note: Optional[str] = None
 
@@ -241,7 +244,9 @@ class EffortLog(BaseModel):
 
     id: int
     user_id: int
-    paper_id: int
+    paper_id: Optional[int] = None
+    textbook_id: Optional[int] = None
+    category: EffortCategory
     points: int
     note: Optional[str] = None
     created_at: dt.datetime

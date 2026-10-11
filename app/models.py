@@ -37,6 +37,37 @@ class PaperSource(str, Enum):
     MANUAL = "MANUAL"
 
 
+class EffortCategory(str, Enum):
+    """What kind of activity an effort log entry represents."""
+
+    PAPER = "PAPER"
+    TEXTBOOK = "TEXTBOOK"
+    SOFTWARE = "SOFTWARE"
+    MUSIC = "MUSIC"
+    WORK = "WORK"
+    CASUAL_READING = "CASUAL_READING"
+
+
+# Categories that can be logged ad hoc, without linking to a paper/textbook.
+ADHOC_EFFORT_CATEGORIES = (
+    EffortCategory.SOFTWARE,
+    EffortCategory.MUSIC,
+    EffortCategory.WORK,
+    EffortCategory.CASUAL_READING,
+)
+
+# Display labels for effort categories, in the order they should appear
+# wherever all categories are listed together (dropdowns, chart breakdowns).
+EFFORT_CATEGORY_LABELS: dict[EffortCategory, str] = {
+    EffortCategory.PAPER: "Papers",
+    EffortCategory.TEXTBOOK: "Textbooks",
+    EffortCategory.SOFTWARE: "Software Engineering",
+    EffortCategory.MUSIC: "Music",
+    EffortCategory.WORK: "Work (from home)",
+    EffortCategory.CASUAL_READING: "Casual Reading",
+}
+
+
 class DiscoverySourceType(str, Enum):
     """Type of discovery source."""
 
@@ -263,6 +294,11 @@ class EffortLog(Base):
     )
     textbook_id: Mapped[int | None] = mapped_column(
         ForeignKey("textbooks.id"), nullable=True, index=True
+    )
+    category: Mapped[EffortCategory] = mapped_column(
+        SqlEnum(EffortCategory, name="effortcategory"),
+        default=EffortCategory.PAPER,
+        nullable=False,
     )
     points: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)

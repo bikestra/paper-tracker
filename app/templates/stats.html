@@ -20,9 +20,16 @@
         </div>
 
         <div class="bg-white rounded-lg shadow p-6">
-            <h2 class="text-lg font-semibold mb-4">Effort Points ({{ current_month_name }} vs {{ last_month_name }})</h2>
+            <h2 class="text-lg font-semibold mb-4">Effort Points - Overall ({{ current_month_name }} vs {{ last_month_name }})</h2>
             <canvas id="effortMonthChart"></canvas>
         </div>
+
+        {% for cat in effort_categories %}
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-lg font-semibold mb-4">Effort Points - {{ cat.label }} ({{ current_month_name }} vs {{ last_month_name }})</h2>
+            <canvas id="effortMonthChart-{{ cat.value }}"></canvas>
+        </div>
+        {% endfor %}
     </div>
 
     <h2 class="text-xl font-bold text-gray-900 pt-4">Yearly Comparison</h2>
@@ -41,6 +48,20 @@
         <div class="bg-white rounded-lg shadow p-6">
             <h2 class="text-lg font-semibold mb-4">Effort Points ({{ current_year }} vs {{ last_year }})</h2>
             <canvas id="effortYearChart"></canvas>
+        </div>
+    </div>
+
+    <h2 class="text-xl font-bold text-gray-900 pt-4">Effort by Type</h2>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-lg font-semibold mb-4">Monthly Breakdown ({{ current_year }})</h2>
+            <canvas id="effortByCategoryMonthChart"></canvas>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-lg font-semibold mb-4">All-Time Breakdown</h2>
+            <canvas id="effortCategoryTotalsChart"></canvas>
         </div>
     </div>
 </div>
@@ -65,6 +86,10 @@ const papersReadThisMonth = {{ papers_read_this_month | tojson }};
 const papersReadLastMonth = {{ papers_read_last_month | tojson }};
 const effortThisMonth = {{ effort_this_month | tojson }};
 const effortLastMonth = {{ effort_last_month | tojson }};
+
+const effortCategories = {{ effort_categories | tojson }};
+const effortByDayThisMonthByCategory = {{ effort_by_day_this_month_by_category | tojson }};
+const effortByDayLastMonthByCategory = {{ effort_by_day_last_month_by_category | tojson }};
 
 const daysInCurrentMonth = {{ days_in_current_month }};
 const daysInLastMonth = {{ days_in_last_month }};
@@ -233,6 +258,46 @@ new Chart(document.getElementById('effortMonthChart'), {
     options: lineOptions
 });
 
+// One current-vs-last-month chart per effort type. Color encodes the time
+// period being compared (same current/last convention as the chart above),
+// not category identity - each chart's own heading names its category.
+effortCategories.forEach(cat => {
+    const thisMonthData = effortByDayThisMonthByCategory[cat.value] || {};
+    const lastMonthData = effortByDayLastMonthByCategory[cat.value] || {};
+    new Chart(document.getElementById(`effortMonthChart-${cat.value}`), {
+        type: 'line',
+        data: {
+            labels: dayLabels,
+            datasets: [
+                {
+                    label: '{{ last_month_name }}',
+                    data: toCumulative(dayDataToArray(lastMonthData, maxDays)),
+                    borderColor: chartColors.last.border,
+                    backgroundColor: chartColors.last.bg,
+                    borderWidth: 2,
+                    tension: 0.1,
+                    fill: false,
+                    pointRadius: 0,
+                    pointHoverRadius: 4
+                },
+                {
+                    label: '{{ current_month_name }}',
+                    data: toCumulativeUpToDay(dayDataToArray(thisMonthData, maxDays), currentDay),
+                    borderColor: chartColors.current.border,
+                    backgroundColor: chartColors.current.bg,
+                    borderWidth: 3,
+                    tension: 0.1,
+                    fill: false,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    spanGaps: false
+                }
+            ]
+        },
+        options: lineOptions
+    });
+});
+
 new Chart(document.getElementById('papersAddedYearChart'), {
     type: 'line',
     data: {
@@ -330,6 +395,80 @@ new Chart(document.getElementById('effortYearChart'), {
         ]
     },
     options: lineOptions
+});
+
+// --- Effort by Type ---
+
+const effortByCategoryThisYear = {{ effort_by_category_this_year | tojson }};
+const effortCategoryTotalsAllTime = {{ effort_category_totals_all_time | tojson }};
+
+// Fixed category order and colors (categorical palette, slots 1-4).
+// Order never changes across charts/filters - color follows the category, not its rank.
+const categoryMeta = [
+    { key: 'PAPER', label: 'Papers', color: '#2a78d6' },
+    { key: 'TEXTBOOK', label: 'Textbooks', color: '#eb6834' },
+    { key: 'SOFTWARE', label: 'Software Engineering', color: '#1baf7a' },
+    { key: 'MUSIC', label: 'Music', color: '#eda100' },
+    { key: 'WORK', label: 'Work (from home)', color: '#e87ba4' },
+    { key: 'CASUAL_READING', label: 'Casual Reading', color: '#008300' }
+].filter(c => (effortByCategoryThisYear[c.key] || effortCategoryTotalsAllTime[c.key]));
+
+new Chart(document.getElementById('effortByCategoryMonthChart'), {
+    type: 'bar',
+    data: {
+        labels: monthNames,
+        datasets: categoryMeta.map(c => ({
+            label: c.label,
+            data: monthDataToArray(effortByCategoryThisYear[c.key] || {}),
+            backgroundColor: c.color,
+            borderWidth: 0,
+            borderRadius: 4
+        }))
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: {
+                position: 'bottom'
+            }
+        },
+        scales: {
+            x: {
+                stacked: true,
+                grid: {
+                    display: false
+                }
+            },
+            y: {
+                stacked: true,
+                beginAtZero: true,
+                grid: {
+                    color: 'rgba(0, 0, 0, 0.05)'
+                }
+            }
+        }
+    }
+});
+
+new Chart(document.getElementById('effortCategoryTotalsChart'), {
+    type: 'doughnut',
+    data: {
+        labels: categoryMeta.map(c => c.label),
+        datasets: [{
+            data: categoryMeta.map(c => effortCategoryTotalsAllTime[c.key] || 0),
+            backgroundColor: categoryMeta.map(c => c.color),
+            borderColor: '#ffffff',
+            borderWidth: 2
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: {
+                position: 'bottom'
+            }
+        }
+    }
 });
 </script>
 {% endblock %}
