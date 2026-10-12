@@ -8,6 +8,42 @@
 </div>
 
 <div class="bg-white rounded-lg shadow-sm border p-4 mb-6">
+    <h2 class="text-sm font-semibold text-gray-900 mb-3">Days Since Last Logged</h2>
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        {% for cat in category_staleness %}
+        {% if cat.days_since is none %}
+            {% set tile_classes = "bg-red-50 border-red-200" %}
+            {% set value_classes = "text-red-700" %}
+            {% set status_text = "Never logged" %}
+        {% elif cat.days_since == 0 %}
+            {% set tile_classes = "bg-green-50 border-green-200" %}
+            {% set value_classes = "text-green-700" %}
+            {% set status_text = "Today" %}
+        {% elif cat.days_since <= 3 %}
+            {% set tile_classes = "bg-green-50 border-green-200" %}
+            {% set value_classes = "text-green-700" %}
+            {% set status_text = "Yesterday" if cat.days_since == 1 else (cat.days_since ~ " days ago") %}
+        {% elif cat.days_since <= 13 %}
+            {% set tile_classes = "bg-amber-50 border-amber-200" %}
+            {% set value_classes = "text-amber-700" %}
+            {% set status_text = cat.days_since ~ " days ago" %}
+        {% else %}
+            {% set tile_classes = "bg-red-50 border-red-200" %}
+            {% set value_classes = "text-red-700" %}
+            {% set status_text = cat.days_since ~ " days ago" %}
+        {% endif %}
+        <div class="rounded-lg border p-3 text-center {{ tile_classes }}">
+            <div class="text-xs font-medium text-gray-500 mb-1">{{ cat.label }}</div>
+            <div class="text-lg font-bold tabular-nums {{ value_classes }}">
+                {{ cat.days_since if cat.days_since is not none else "—" }}
+            </div>
+            <div class="text-xs {{ value_classes }}">{{ status_text }}</div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="bg-white rounded-lg shadow-sm border p-4 mb-6">
     <h2 class="text-sm font-semibold text-gray-900 mb-3">Log ad hoc effort</h2>
     <form action="/efforts/adhoc" method="POST" class="flex flex-col sm:flex-row sm:items-end gap-3">
         <div class="flex-shrink-0">

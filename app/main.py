@@ -950,12 +950,34 @@ def efforts_page(
 ):
     """Page showing all effort logs chronologically."""
     effort_logs = crud.get_effort_logs(db, user_id=current_user.id)
+
+    last_effort_dates = crud.get_last_effort_date_per_category(
+        db, user_id=current_user.id
+    )
+    now = dt.datetime.now(dt.timezone.utc)
+    category_staleness = []
+    for cat in models.EffortCategory:
+        last_at = last_effort_dates.get(cat.value)
+        days_since = None
+        if last_at is not None:
+            if last_at.tzinfo is None:
+                last_at = last_at.replace(tzinfo=dt.timezone.utc)
+            days_since = (now - last_at).days
+        category_staleness.append(
+            {
+                "value": cat.value,
+                "label": models.EFFORT_CATEGORY_LABELS[cat],
+                "days_since": days_since,
+            }
+        )
+
     return templates.TemplateResponse(
         "efforts.html",
         {
             "request": request,
             "effort_logs": effort_logs,
             "adhoc_categories": models.ADHOC_EFFORT_CATEGORIES,
+            "category_staleness": category_staleness,
             "active_page": "efforts",
         },
     )

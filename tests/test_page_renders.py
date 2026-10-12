@@ -113,6 +113,28 @@ class TestEffortPages:
         assert b"Log ad hoc effort" in response.content
         assert b"Software Engineering" in response.content
 
+    def test_efforts_page_staleness_widget_never_logged(self, client):
+        """With no effort logged at all, every category should read 'Never logged'."""
+        response = client.get("/efforts")
+        assert response.status_code == 200
+        assert b"Days Since Last Logged" in response.content
+        assert b"Never logged" in response.content
+
+    def test_efforts_page_staleness_widget_logged_today(self, client, sample_paper):
+        from app import crud
+
+        session = client._Session()
+        try:
+            crud.create_effort_log(session, points=1, paper_id=sample_paper, user_id=1)
+        finally:
+            session.close()
+
+        response = client.get("/efforts")
+        assert response.status_code == 200
+        assert b"Today" in response.content
+        # Only Papers was logged - every other category is still untouched.
+        assert b"Never logged" in response.content
+
 
 class TestInsightsPages:
     """Tests for monthly insights pages."""

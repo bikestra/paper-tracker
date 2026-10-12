@@ -1740,6 +1740,24 @@ def get_effort_category_totals(
     return {category.value: total or 0 for category, total in results}
 
 
+def get_last_effort_date_per_category(
+    db: Session,
+    user_id: int = DEFAULT_USER_ID,
+) -> dict[str, dt.datetime]:
+    """Get the most recent effort log timestamp per category.
+
+    Returns {category_value: created_at}, with an entry only for categories
+    that have at least one logged entry.
+    """
+    stmt = (
+        select(models.EffortLog.category, func.max(models.EffortLog.created_at))
+        .where(models.EffortLog.user_id == user_id)
+        .group_by(models.EffortLog.category)
+    )
+    results = db.execute(stmt).all()
+    return {category.value: last_at for category, last_at in results}
+
+
 # --- Monthly Insights Functions ---
 
 
